@@ -172,14 +172,6 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
               <Car className="w-4 h-4 text-emerald-400" />
               <span>Veículos</span>
             </button>
-
-            <button
-              onClick={() => onNavigate('import')}
-              className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs sm:text-sm font-bold rounded-xl border border-emerald-500/30 backdrop-blur-md transition-all cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span>Importar Access</span>
-            </button>
           </div>
         </div>
       </div>
