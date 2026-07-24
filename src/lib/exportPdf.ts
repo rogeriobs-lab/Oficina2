@@ -1,4 +1,4 @@
-import { formatCurrency, formatDate } from './theme';
+import { formatCurrency, formatDate, formatPhone } from './theme';
 
 type PdfOrder = {
   id: string;
@@ -87,7 +87,7 @@ const buildOrderHtml = (order: PdfOrder, customOrderNum?: string): string => {
     <div class="info-card">
       <div class="info-label">Cliente</div>
       <div class="info-value">${order.clients?.name ?? '—'}</div>
-      ${order.clients?.phone ? `<div class="info-sub">${order.clients.phone}</div>` : ''}
+      ${order.clients?.phone ? `<div class="info-sub">${formatPhone(order.clients.phone)}</div>` : ''}
     </div>
     <div class="info-card">
       <div class="info-label">Veículo</div>

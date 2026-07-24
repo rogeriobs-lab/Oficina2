@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, type Client } from '@/src/lib/supabase';
-import { theme } from '@/src/lib/theme';
+import { theme, formatPhone } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
 import { Plus, Search, User, Phone, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet } from 'lucide-react';
 
@@ -42,6 +42,10 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
     loadClients();
   }, [loadClients]);
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormPhone(formatPhone(e.target.value));
+  };
+
   const openAddModal = () => {
     setEditingClient(null);
     setFormName('');
@@ -54,7 +58,7 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
   const openEditModal = (client: Client) => {
     setEditingClient(client);
     setFormName(client.name);
-    setFormPhone(client.phone ?? '');
+    setFormPhone(formatPhone(client.phone));
     setFormNotes(client.notes ?? '');
     setFormError(null);
     setModalVisible(true);
@@ -198,7 +202,7 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
                       <div className="flex items-center justify-between text-xs text-slate-600 font-semibold bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                         <div className="flex items-center gap-2">
                           <Phone className="w-3.5 h-3.5 text-sky-600" />
-                          <span>{client.phone}</span>
+                          <span>{formatPhone(client.phone)}</span>
                         </div>
                         {waUrl && (
                           <a
@@ -275,7 +279,7 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
                   type="text"
                   placeholder="Ex: (11) 98765-4321"
                   value={formPhone}
-                  onChange={(e) => setFormPhone(e.target.value)}
+                  onChange={handlePhoneChange}
                   className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none"
                 />
               </div>

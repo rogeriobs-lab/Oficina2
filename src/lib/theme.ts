@@ -26,6 +26,25 @@ export const formatCurrency = (value: number): string => {
   });
 };
 
+export const formatPhone = (val: string | null | undefined): string => {
+  if (!val) return '';
+  let value = val.replace(/\D/g, '');
+  if (value.length > 11) value = value.slice(0, 11);
+  
+  if (value.length > 10) {
+    // 11 digits: (XX) XXXXX-XXXX
+    return `(${value.slice(0, 2)}) ${value.slice(2, 7)}-${value.slice(7)}`;
+  } else if (value.length > 6) {
+    // 7 to 10 digits: (XX) XXXX-XXXX
+    return `(${value.slice(0, 2)}) ${value.slice(2, 6)}-${value.slice(6)}`;
+  } else if (value.length > 2) {
+    // 3 to 6 digits: (XX) XXXX
+    return `(${value.slice(0, 2)}) ${value.slice(2)}`;
+  }
+  
+  return value;
+};
+
 export const formatDate = (date: string): string => {
   if (!date) return '—';
   const d = new Date(date);

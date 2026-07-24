@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, type OrderItem } from '@/src/lib/supabase';
-import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
+import { theme, formatDate, formatCurrency, formatPhone } from '@/src/lib/theme';
 import { getSingleOrderNumber } from '@/src/lib/orderUtils';
 import { LoadingState, ErrorState } from './States';
 import { exportOrderToPdf } from '@/src/lib/exportPdf';
@@ -340,7 +340,7 @@ export default function OrderDetailView({ orderId, onBack }: OrderDetailViewProp
           <div>
             <h3 className="font-bold text-slate-900">{order.clients?.name ?? '—'}</h3>
             {order.clients?.phone && (
-              <p className="text-sm text-slate-500 mt-1 font-medium">{order.clients.phone}</p>
+              <p className="text-sm text-slate-500 mt-1 font-medium">{formatPhone(order.clients.phone)}</p>
             )}
           </div>
         </div>
