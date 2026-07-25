@@ -124,10 +124,6 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
         <div className="relative z-10 p-6 sm:p-8 md:p-10 flex flex-col justify-between gap-6 min-h-[220px]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-400/20 text-sky-300 text-xs font-semibold backdrop-blur-md">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>OficinaPro · Gestão Automotiva Premium</span>
-              </div>
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white pt-1">
                 Painel da Oficina
               </h1>
