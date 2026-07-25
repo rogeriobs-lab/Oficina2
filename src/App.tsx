@@ -182,7 +182,7 @@ function MainApp() {
         </main>
 
         {/* BOTTOM NAV BAR FOR MOBILE */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-md border-t border-slate-200/80 flex items-center justify-around px-2 py-1 shadow-2xl z-40">
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 flex items-center justify-around px-2 py-1 shadow-2xl z-40">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
@@ -194,7 +194,7 @@ function MainApp() {
                 key={item.id}
                 onClick={() => navigateTo(item.id)}
                 className={`flex flex-col items-center justify-center w-16 h-12 rounded-xl transition-all cursor-pointer ${
-                  isActive ? 'text-sky-600 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-600'
+                  isActive ? 'text-sky-400 font-extrabold scale-105' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Icon className="w-5 h-5" />
