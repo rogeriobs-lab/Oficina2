@@ -121,7 +121,7 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
         />
         <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/85 to-slate-900/40" />
 
-        <div className="relative z-10 p-6 sm:p-8 md:p-10 flex flex-col justify-between gap-6 min-h-[220px]">
+        <div className="relative z-10 p-5 sm:p-8 md:p-10 flex flex-col gap-5 sm:gap-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-white pt-1">
