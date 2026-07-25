@@ -132,15 +132,6 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
                 {todayFormatted}
               </p>
             </div>
-
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="inline-flex items-center justify-center gap-2 self-start sm:self-center px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold rounded-xl border border-white/15 backdrop-blur-md transition-all shadow-sm cursor-pointer"
-            >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Atualizar Dados</span>
-            </button>
           </div>
 
           {/* Quick Action Shortcuts */}
