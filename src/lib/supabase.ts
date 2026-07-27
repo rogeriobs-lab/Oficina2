@@ -116,6 +116,45 @@ export const resetSupabaseCredentials = () => {
   window.location.reload();
 };
 
+export const syncLocalToSupabase = async (): Promise<{ count: number }> => {
+  if (!isRealSupabaseConfigured) {
+    throw new Error('Supabase não está configurado. Insira a URL e a Chave Anon antes de sincronizar.');
+  }
+
+  const clients = getStorageItem<Client[]>('oficinapro_clients', []);
+  const vehicles = getStorageItem<Vehicle[]>('oficinapro_vehicles', []);
+  const orders = getStorageItem<ServiceOrder[]>('oficinapro_service_orders', []);
+  const items = getStorageItem<OrderItem[]>('oficinapro_order_items', []);
+
+  let totalCount = 0;
+
+  if (clients.length > 0) {
+    const { error } = await supabase.from('clients').upsert(clients);
+    if (error) console.error('Erro ao sincronizar clientes:', error);
+    else totalCount += clients.length;
+  }
+
+  if (vehicles.length > 0) {
+    const { error } = await supabase.from('vehicles').upsert(vehicles);
+    if (error) console.error('Erro ao sincronizar veículos:', error);
+    else totalCount += vehicles.length;
+  }
+
+  if (orders.length > 0) {
+    const { error } = await supabase.from('service_orders').upsert(orders);
+    if (error) console.error('Erro ao sincronizar ordens:', error);
+    else totalCount += orders.length;
+  }
+
+  if (items.length > 0) {
+    const { error } = await supabase.from('order_items').upsert(items);
+    if (error) console.error('Erro ao sincronizar itens:', error);
+    else totalCount += items.length;
+  }
+
+  return { count: totalCount };
+};
+
 export const exportAllDataBackup = async () => {
   let clientsData: Client[] = [];
   let vehiclesData: Vehicle[] = [];
