@@ -116,13 +116,45 @@ export const resetSupabaseCredentials = () => {
   window.location.reload();
 };
 
-export const exportAllDataBackup = () => {
+export const exportAllDataBackup = async () => {
+  let clientsData: Client[] = [];
+  let vehiclesData: Vehicle[] = [];
+  let ordersData: ServiceOrder[] = [];
+  let itemsData: OrderItem[] = [];
+
+  // If connected to real Supabase cloud, fetch real data from the database
+  if (isRealSupabaseConfigured) {
+    try {
+      const [cRes, vRes, oRes, iRes] = await Promise.all([
+        supabase.from('clients').select('*'),
+        supabase.from('vehicles').select('*'),
+        supabase.from('service_orders').select('*'),
+        supabase.from('order_items').select('*'),
+      ]);
+      if (cRes.data) clientsData = cRes.data;
+      if (vRes.data) vehiclesData = vRes.data;
+      if (oRes.data) ordersData = oRes.data;
+      if (iRes.data) itemsData = iRes.data;
+    } catch (e) {
+      console.error('Erro ao buscar dados do Supabase para backup:', e);
+    }
+  }
+
+  // Fallback or fill from localStorage if cloud had no records
+  if (clientsData.length === 0 && vehiclesData.length === 0) {
+    clientsData = getStorageItem<Client[]>('oficinapro_clients', []);
+    vehiclesData = getStorageItem<Vehicle[]>('oficinapro_vehicles', []);
+    ordersData = getStorageItem<ServiceOrder[]>('oficinapro_service_orders', []);
+    itemsData = getStorageItem<OrderItem[]>('oficinapro_order_items', []);
+  }
+
   const backup = {
-    clients: getStorageItem<Client[]>('oficinapro_clients', []),
-    vehicles: getStorageItem<Vehicle[]>('oficinapro_vehicles', []),
-    orders: getStorageItem<ServiceOrder[]>('oficinapro_service_orders', []),
-    items: getStorageItem<OrderItem[]>('oficinapro_order_items', []),
+    system: 'OficinaPro Backup',
     exportedAt: new Date().toISOString(),
+    clients: clientsData,
+    vehicles: vehiclesData,
+    orders: ordersData,
+    items: itemsData,
   };
 
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -130,15 +162,93 @@ export const exportAllDataBackup = () => {
   const a = document.createElement('a');
   a.href = url;
   a.download = `backup_oficinapro_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
 
-export const importDataBackup = (jsonData: any) => {
+export const exportSqlBackup = async () => {
+  let clientsData: Client[] = [];
+  let vehiclesData: Vehicle[] = [];
+  let ordersData: ServiceOrder[] = [];
+  let itemsData: OrderItem[] = [];
+
+  if (isRealSupabaseConfigured) {
+    try {
+      const [cRes, vRes, oRes, iRes] = await Promise.all([
+        supabase.from('clients').select('*'),
+        supabase.from('vehicles').select('*'),
+        supabase.from('service_orders').select('*'),
+        supabase.from('order_items').select('*'),
+      ]);
+      if (cRes.data) clientsData = cRes.data;
+      if (vRes.data) vehiclesData = vRes.data;
+      if (oRes.data) ordersData = oRes.data;
+      if (iRes.data) itemsData = iRes.data;
+    } catch (e) {
+      console.error('Erro ao buscar do Supabase para SQL:', e);
+    }
+  }
+
+  if (clientsData.length === 0 && vehiclesData.length === 0) {
+    clientsData = getStorageItem<Client[]>('oficinapro_clients', []);
+    vehiclesData = getStorageItem<Vehicle[]>('oficinapro_vehicles', []);
+    ordersData = getStorageItem<ServiceOrder[]>('oficinapro_service_orders', []);
+    itemsData = getStorageItem<OrderItem[]>('oficinapro_order_items', []);
+  }
+
+  const escapeSql = (val: string | null | undefined): string => {
+    if (val === null || val === undefined) return 'NULL';
+    return `'${String(val).replace(/'/g, "''")}'`;
+  };
+
+  let sql = `-- SCRIPT DE RESTAURAÇÃO/BACKUP DE DADOS OFICINAPRO\n-- GERADO EM: ${new Date().toLocaleString('pt-BR')}\n\n`;
+
+  // Clients
+  sql += `-- TABELA DE CLIENTES (${clientsData.length} registros)\n`;
+  clientsData.forEach((c) => {
+    sql += `INSERT INTO public.clients (id, name, phone, notes, created_at) VALUES ('${c.id}', ${escapeSql(c.name)}, ${escapeSql(c.phone)}, ${escapeSql(c.notes)}, '${c.created_at}') ON CONFLICT (id) DO NOTHING;\n`;
+  });
+  sql += '\n';
+
+  // Vehicles
+  sql += `-- TABELA DE VEÍCULOS (${vehiclesData.length} registros)\n`;
+  vehiclesData.forEach((v) => {
+    sql += `INSERT INTO public.vehicles (id, client_id, plate, brand, model, year, notes, created_at) VALUES ('${v.id}', '${v.client_id}', ${escapeSql(v.plate)}, ${escapeSql(v.brand)}, ${escapeSql(v.model)}, ${v.year || 'NULL'}, ${escapeSql(v.notes)}, '${v.created_at}') ON CONFLICT (id) DO NOTHING;\n`;
+  });
+  sql += '\n';
+
+  // Orders
+  sql += `-- TABELA DE ORDENS DE SERVIÇO (${ordersData.length} registros)\n`;
+  ordersData.forEach((o) => {
+    sql += `INSERT INTO public.service_orders (id, client_id, vehicle_id, order_date, mileage, status, created_at) VALUES ('${o.id}', '${o.client_id}', '${o.vehicle_id}', '${o.order_date}', ${o.mileage || 'NULL'}, '${o.status}', '${o.created_at}') ON CONFLICT (id) DO NOTHING;\n`;
+  });
+  sql += '\n';
+
+  // Items
+  sql += `-- TABELA DE ITENS/PEÇAS DA ORDEM (${itemsData.length} registros)\n`;
+  itemsData.forEach((i) => {
+    sql += `INSERT INTO public.order_items (id, order_id, item_type, description, price, created_at) VALUES ('${i.id}', '${i.order_id}', '${i.item_type}', ${escapeSql(i.description)}, ${i.price || 0}, '${i.created_at}') ON CONFLICT (id) DO NOTHING;\n`;
+  });
+
+  const blob = new Blob([sql], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup_oficinapro_${new Date().toISOString().split('T')[0]}.sql`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+export const importDataBackup = async (jsonData: any) => {
   if (!jsonData || typeof jsonData !== 'object') {
     throw new Error('Arquivo JSON inválido.');
   }
 
+  // Save to local storage
   if (Array.isArray(jsonData.clients)) {
     setStorageItem('oficinapro_clients', jsonData.clients);
   }
@@ -153,6 +263,26 @@ export const importDataBackup = (jsonData: any) => {
   }
 
   localStorage.setItem('oficinapro_initialized', 'true');
+
+  // If connected to Supabase, offer sync to Supabase
+  if (isRealSupabaseConfigured) {
+    try {
+      if (Array.isArray(jsonData.clients) && jsonData.clients.length > 0) {
+        await supabase.from('clients').upsert(jsonData.clients);
+      }
+      if (Array.isArray(jsonData.vehicles) && jsonData.vehicles.length > 0) {
+        await supabase.from('vehicles').upsert(jsonData.vehicles);
+      }
+      if (Array.isArray(jsonData.orders) && jsonData.orders.length > 0) {
+        await supabase.from('service_orders').upsert(jsonData.orders);
+      }
+      if (Array.isArray(jsonData.items) && jsonData.items.length > 0) {
+        await supabase.from('order_items').upsert(jsonData.items);
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar backup importado para o Supabase:', e);
+    }
+  }
 };
 
 // --- LOCAL STORAGE DATABASE BACKEND FOR OFFLINE FALLBACK ---

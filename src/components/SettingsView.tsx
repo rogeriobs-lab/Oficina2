@@ -3,6 +3,7 @@ import {
   getSupabaseCredentials,
   saveSupabaseCredentials,
   exportAllDataBackup,
+  exportSqlBackup,
   importDataBackup,
 } from '../lib/supabase';
 import {
@@ -19,6 +20,11 @@ import {
   Trash2,
   Info,
   ShieldCheck,
+  FileCode,
+  FileJson,
+  Loader2,
+  Smartphone,
+  Laptop,
 } from 'lucide-react';
 
 export default function SettingsView() {
@@ -28,6 +34,8 @@ export default function SettingsView() {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
+  const [exportingJson, setExportingJson] = useState(false);
+  const [exportingSql, setExportingSql] = useState(false);
 
   const handleSaveSupabase = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,15 +54,41 @@ export default function SettingsView() {
     }
   };
 
+  const handleExportJson = async () => {
+    setExportingJson(true);
+    try {
+      await exportAllDataBackup();
+      setImportStatus('Backup JSON gerado e baixado no seu dispositivo!');
+      setErrorStatus(null);
+    } catch (err: any) {
+      setErrorStatus('Erro ao exportar backup em JSON.');
+    } finally {
+      setExportingJson(false);
+    }
+  };
+
+  const handleExportSql = async () => {
+    setExportingSql(true);
+    try {
+      await exportSqlBackup();
+      setImportStatus('Script SQL do banco gerado e baixado no seu dispositivo!');
+      setErrorStatus(null);
+    } catch (err: any) {
+      setErrorStatus('Erro ao exportar backup em SQL.');
+    } finally {
+      setExportingSql(false);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        importDataBackup(json);
+        await importDataBackup(json);
         setImportStatus('Backup restaurado com sucesso! Recarregando página...');
         setErrorStatus(null);
         setTimeout(() => {
@@ -254,48 +288,108 @@ export default function SettingsView() {
       {/* Backup and Restore Section */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6">
         <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-          <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
+          <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-200">
             <Database className="w-5 h-5" />
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900">
-              Backup e Restauração Manual de Dados
+              Backup e Restauração de Dados (PC e Celular)
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              Faça download dos seus cadastros (clientes, veículos e ordens) para um arquivo de segurança no seu computador ou restaure dados salvos anteriormente.
+              Faça cópias de segurança do seu banco de dados diretamente para o seu computador ou celular com um único clique.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Export */}
-          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 flex flex-col justify-between">
+        {/* Device compatibility notice */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-700 space-y-2">
+          <div className="font-bold text-slate-900 flex items-center gap-2">
+            <Info className="w-4 h-4 text-sky-600" />
+            <span>Como funciona o salvamento na pasta do seu dispositivo:</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-[11px]">
+            <div className="flex items-start gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
+              <Laptop className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block text-slate-900">No Computador:</strong>
+                O arquivo é baixado automaticamente para sua pasta <strong>Downloads</strong>.
+              </div>
+            </div>
+            <div className="flex items-start gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
+              <Smartphone className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block text-slate-900">No Celular:</strong>
+                O navegador salvará na pasta <strong>Downloads</strong> ou abrirá a tela "Salvar em Arquivos / Compartilhar".
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Export JSON */}
+          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 flex flex-col justify-between hover:border-slate-300 transition-all">
             <div className="space-y-1">
-              <span className="font-extrabold text-slate-900 text-sm block">Exportar Backup</span>
-              <p className="text-xs text-slate-500">
-                Gera um arquivo <code>.json</code> contendo todos os clientes, veículos e ordens de serviço.
+              <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm">
+                <FileJson className="w-4 h-4 text-sky-600" />
+                <span>Backup em JSON</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Recomendado para fazer cópias periódicas e guardar no PC ou celular.
               </p>
             </div>
             <button
-              onClick={exportAllDataBackup}
-              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+              onClick={handleExportJson}
+              disabled={exportingJson}
+              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs disabled:opacity-50"
             >
-              <Download className="w-4 h-4 text-amber-400" />
-              <span>Baixar Arquivo de Backup (.json)</span>
+              {exportingJson ? (
+                <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+              ) : (
+                <Download className="w-4 h-4 text-amber-400" />
+              )}
+              <span>{exportingJson ? 'Gerando...' : 'Baixar Backup JSON'}</span>
             </button>
           </div>
 
-          {/* Import */}
-          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 flex flex-col justify-between">
+          {/* Export SQL */}
+          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 flex flex-col justify-between hover:border-slate-300 transition-all">
             <div className="space-y-1">
-              <span className="font-extrabold text-slate-900 text-sm block">Restaurar Backup</span>
-              <p className="text-xs text-slate-500">
-                Carregue um arquivo de backup previamente baixado para restaurar seus cadastros.
+              <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm">
+                <FileCode className="w-4 h-4 text-amber-600" />
+                <span>Script SQL (.sql)</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Gera instruções <code>INSERT SQL</code> prontas para rodar no Supabase Editor.
               </p>
             </div>
-            <label className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 text-center">
-              <Upload className="w-4 h-4 text-sky-600" />
-              <span>Selecionar Arquivo de Backup (.json)</span>
+            <button
+              onClick={handleExportSql}
+              disabled={exportingSql}
+              className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs disabled:opacity-50"
+            >
+              {exportingSql ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 text-amber-200" />
+              )}
+              <span>{exportingSql ? 'Gerando...' : 'Baixar Script SQL'}</span>
+            </button>
+          </div>
+
+          {/* Import JSON */}
+          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 flex flex-col justify-between hover:border-slate-300 transition-all">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-slate-900 font-extrabold text-sm">
+                <Upload className="w-4 h-4 text-emerald-600" />
+                <span>Restaurar Backup</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Carregue um arquivo <code>.json</code> prévio para importar seus clientes e ordens.
+              </p>
+            </div>
+            <label className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 text-center shadow-xs">
+              <Upload className="w-4 h-4 text-emerald-600" />
+              <span>Selecionar Arquivo .json</span>
               <input
                 type="file"
                 accept=".json"

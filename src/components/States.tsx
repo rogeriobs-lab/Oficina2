@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { theme } from '@/src/lib/theme';
-import { resetSupabaseCredentials } from '@/src/lib/supabase';
-import { AlertCircle, Loader2, Inbox, Copy, Check, Database, RefreshCw, Terminal } from 'lucide-react';
+import { resetSupabaseCredentials, supabase } from '@/src/lib/supabase';
+import { AlertCircle, Loader2, Inbox, Copy, Check, Database, RefreshCw, Terminal, LogOut, Clock } from 'lucide-react';
 
 export function LoadingState() {
   return (
@@ -17,15 +17,40 @@ export function LoadingState() {
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   const [copied, setCopied] = useState(false);
   const [showSqlModal, setShowSqlModal] = useState(false);
+  const [clearingSession, setClearingSession] = useState(false);
+
+  const isJwtError =
+    message.toLowerCase().includes('jwt') ||
+    message.toLowerCase().includes('token') ||
+    message.toLowerCase().includes('future') ||
+    message.toLowerCase().includes('claim');
 
   const isTableMissing =
-    message.toLowerCase().includes('relation') ||
-    message.toLowerCase().includes('does not exist') ||
-    message.toLowerCase().includes('clients') ||
-    message.toLowerCase().includes('42p01') ||
-    message.toLowerCase().includes('pgrst204') ||
-    message.toLowerCase().includes('table') ||
-    message.toLowerCase().includes('erro ao carregar');
+    !isJwtError &&
+    (message.toLowerCase().includes('relation') ||
+      message.toLowerCase().includes('does not exist') ||
+      message.toLowerCase().includes('clients') ||
+      message.toLowerCase().includes('42p01') ||
+      message.toLowerCase().includes('pgrst204') ||
+      message.toLowerCase().includes('table'));
+
+  const handleClearSession = async () => {
+    setClearingSession(true);
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Erro ao sair do Supabase:', e);
+    } finally {
+      // Clear local storage auth keys if present
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes('sb-') || key.includes('supabase'))) {
+          localStorage.removeItem(key);
+        }
+      }
+      window.location.reload();
+    }
+  };
 
   const sqlScript = `-- SCRIPT SQL PARA CRIAR AS TABELAS DO OFICINAPRO NO SUPABASE
 -- Cole este código no "SQL Editor" do seu painel Supabase e clique em "RUN".
@@ -101,47 +126,86 @@ CREATE POLICY "Acesso total itens" ON public.order_items FOR ALL USING (true) WI
 
       <div className="space-y-1">
         <h3 className="text-lg font-black text-slate-900">
-          {isTableMissing ? 'Tabelas do Banco de Dados Não Encontradas' : 'Erro ao Carregar Dados'}
+          {isJwtError
+            ? 'Sessão Expirada ou Dessincronizada'
+            : isTableMissing
+            ? 'Tabelas do Banco de Dados Não Encontradas'
+            : 'Erro ao Carregar Dados'}
         </h3>
         <p className="text-xs text-red-600 font-mono bg-red-50 p-3 rounded-xl border border-red-200 text-left overflow-x-auto max-w-full">
           {message}
         </p>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left text-xs text-amber-900 space-y-3 w-full">
-        <div className="flex items-center gap-2 font-bold text-amber-950">
-          <Database className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>Como Resolver Este Problema no Seu Supabase:</span>
+      {isJwtError ? (
+        <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 text-left text-xs text-sky-950 space-y-3 w-full">
+          <div className="flex items-center gap-2 font-bold text-sky-950">
+            <Clock className="w-4 h-4 text-sky-600 shrink-0" />
+            <span>Por que esse erro ("JWT issued at future") acontece?</span>
+          </div>
+          <p className="text-sky-900/90 leading-relaxed">
+            Esse erro do Supabase ocorre por dois motivos comuns:
+          </p>
+          <ul className="list-disc list-inside space-y-1 text-sky-900 font-medium pl-1">
+            <li>
+              <strong>Token antigo salvo no navegador:</strong> O navegador manteve uma sessão de login anterior que foi revogada ou expirou.
+            </li>
+            <li>
+              <strong>Relógio do computador/dispositivo:</strong> O relógio local está com alguns segundos de diferença em relação ao servidor do Supabase.
+            </li>
+          </ul>
+
+          <div className="pt-2">
+            <button
+              onClick={handleClearSession}
+              disabled={clearingSession}
+              className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {clearingSession ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <LogOut className="w-4 h-4" />
+              )}
+              <span>Renovar Sessão / Entrar Novamente</span>
+            </button>
+          </div>
         </div>
-        <p className="text-amber-900/90 leading-relaxed">
-          O projeto do Supabase foi conectado com sucesso, mas as tabelas do sistema (<strong>clients, vehicles, service_orders, order_items</strong>) ainda não foram criadas no banco de dados.
-        </p>
+      ) : isTableMissing ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left text-xs text-amber-900 space-y-3 w-full">
+          <div className="flex items-center gap-2 font-bold text-amber-950">
+            <Database className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Como Resolver Este Problema no Seu Supabase:</span>
+          </div>
+          <p className="text-amber-900/90 leading-relaxed">
+            O projeto do Supabase foi conectado com sucesso, mas as tabelas do sistema (<strong>clients, vehicles, service_orders, order_items</strong>) ainda não foram criadas no banco de dados.
+          </p>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-          <button
-            onClick={copySql}
-            className="flex-1 py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-            <span>{copied ? 'Script SQL Copiado!' : 'Copiar Script SQL para Criar Tabelas'}</span>
-          </button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+            <button
+              onClick={copySql}
+              className="flex-1 py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+              <span>{copied ? 'Script SQL Copiado!' : 'Copiar Script SQL para Criar Tabelas'}</span>
+            </button>
 
-          <button
-            onClick={() => setShowSqlModal(!showSqlModal)}
-            className="py-2.5 px-3 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Terminal className="w-4 h-4 text-amber-600" />
-            <span>Ver SQL</span>
-          </button>
+            <button
+              onClick={() => setShowSqlModal(!showSqlModal)}
+              className="py-2.5 px-3 bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Terminal className="w-4 h-4 text-amber-600" />
+              <span>Ver SQL</span>
+            </button>
+          </div>
+
+          <ol className="list-decimal list-inside space-y-1 text-amber-900/90 text-[11px] font-medium pt-1 border-t border-amber-200/80">
+            <li>Acesse seu painel no Supabase: <strong>supabase.com/dashboard</strong></li>
+            <li>No menu lateral, clique em <strong>SQL Editor</strong> &gt; <strong>New Query</strong></li>
+            <li>Cole o código SQL e clique no botão verde <strong>RUN</strong></li>
+            <li>Volte aqui e clique em "Tentar Novamente"!</li>
+          </ol>
         </div>
-
-        <ol className="list-decimal list-inside space-y-1 text-amber-900/90 text-[11px] font-medium pt-1 border-t border-amber-200/80">
-          <li>Acesse seu painel no Supabase: <strong>supabase.com/dashboard</strong></li>
-          <li>No menu lateral, clique em <strong>SQL Editor</strong> &gt; <strong>New Query</strong></li>
-          <li>Cole o código SQL e clique no botão verde <strong>RUN</strong></li>
-          <li>Volte aqui e clique em "Tentar Novamente"!</li>
-        </ol>
-      </div>
+      ) : null}
 
       {showSqlModal && (
         <div className="w-full text-left bg-slate-950 text-slate-200 p-4 rounded-2xl text-[11px] font-mono overflow-x-auto relative space-y-2 border border-slate-800">
