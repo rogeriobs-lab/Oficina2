@@ -18,28 +18,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    async function loadInitialSession() {
+      try {
+        const { data } = await supabase.auth.getSession();
+        setSession(data?.session ?? null);
+      } catch (err) {
+        console.error('Erro ao verificar sessão Supabase:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
+    loadInitialSession();
+
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+        setSession(newSession);
+      });
+      unsubscribe = () => sub?.subscription?.unsubscribe();
+    } catch (err) {
+      console.error('Erro ao registrar listener auth:', err);
+    }
 
     return () => {
-      sub.subscription.unsubscribe();
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      return { error: error?.message ?? null };
+    } catch (err: any) {
+      return { error: err.message || 'Erro ao conectar ao servidor Supabase. Verifique as credenciais.' };
+    }
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: error?.message ?? null };
+    try {
+      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: redirectUrl,
+        },
+      });
+      return { error: error?.message ?? null };
+    } catch (err: any) {
+      return { error: err.message || 'Erro ao cadastrar usuário no Supabase.' };
+    }
   };
 
   const signOut = async () => {

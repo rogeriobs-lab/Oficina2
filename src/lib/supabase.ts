@@ -49,11 +49,111 @@ export type ServiceOrderWithDetails = ServiceOrder & {
   order_items: OrderItem[];
 };
 
-// Check if real Supabase environment variables are available
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+// Helper to format URL with https:// if missing
+export const formatSupabaseUrl = (urlStr: string): string => {
+  let cleaned = (urlStr || '').trim();
+  if (cleaned && !cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+    cleaned = `https://${cleaned}`;
+  }
+  return cleaned;
+};
 
-const isRealSupabaseConfigured = supabaseUrl && supabaseAnonKey;
+// Check if a URL string is valid
+const isValidUrl = (urlStr: string): boolean => {
+  if (!urlStr) return false;
+  try {
+    const parsed = new URL(urlStr);
+    return Boolean(parsed.hostname && (parsed.protocol === 'http:' || parsed.protocol === 'https:'));
+  } catch {
+    return false;
+  }
+};
+
+// Check if real Supabase environment variables or localStorage overrides are available
+const getEnvOrStorage = (envKey: string): string => {
+  try {
+    const envVal = (import.meta as any).env?.[envKey];
+    if (envVal && envVal !== 'MY_APP_URL') return envVal;
+    return localStorage.getItem(envKey) || '';
+  } catch {
+    return '';
+  }
+};
+
+const rawSupabaseUrl = getEnvOrStorage('VITE_SUPABASE_URL');
+const supabaseUrl = formatSupabaseUrl(rawSupabaseUrl);
+const supabaseAnonKey = getEnvOrStorage('VITE_SUPABASE_ANON_KEY');
+
+export const isRealSupabaseConfigured = Boolean(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  isValidUrl(supabaseUrl)
+);
+
+export const getSupabaseCredentials = () => {
+  return {
+    url: supabaseUrl,
+    key: supabaseAnonKey,
+    isCloud: isRealSupabaseConfigured,
+  };
+};
+
+export const saveSupabaseCredentials = (url: string, key: string) => {
+  const formattedUrl = formatSupabaseUrl(url);
+  if (formattedUrl && key.trim()) {
+    localStorage.setItem('VITE_SUPABASE_URL', formattedUrl);
+    localStorage.setItem('VITE_SUPABASE_ANON_KEY', key.trim());
+  } else {
+    localStorage.removeItem('VITE_SUPABASE_URL');
+    localStorage.removeItem('VITE_SUPABASE_ANON_KEY');
+  }
+  window.location.reload();
+};
+
+export const resetSupabaseCredentials = () => {
+  localStorage.removeItem('VITE_SUPABASE_URL');
+  localStorage.removeItem('VITE_SUPABASE_ANON_KEY');
+  window.location.reload();
+};
+
+export const exportAllDataBackup = () => {
+  const backup = {
+    clients: getStorageItem<Client[]>('oficinapro_clients', []),
+    vehicles: getStorageItem<Vehicle[]>('oficinapro_vehicles', []),
+    orders: getStorageItem<ServiceOrder[]>('oficinapro_service_orders', []),
+    items: getStorageItem<OrderItem[]>('oficinapro_order_items', []),
+    exportedAt: new Date().toISOString(),
+  };
+
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `backup_oficinapro_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+export const importDataBackup = (jsonData: any) => {
+  if (!jsonData || typeof jsonData !== 'object') {
+    throw new Error('Arquivo JSON inválido.');
+  }
+
+  if (Array.isArray(jsonData.clients)) {
+    setStorageItem('oficinapro_clients', jsonData.clients);
+  }
+  if (Array.isArray(jsonData.vehicles)) {
+    setStorageItem('oficinapro_vehicles', jsonData.vehicles);
+  }
+  if (Array.isArray(jsonData.orders)) {
+    setStorageItem('oficinapro_service_orders', jsonData.orders);
+  }
+  if (Array.isArray(jsonData.items)) {
+    setStorageItem('oficinapro_order_items', jsonData.items);
+  }
+
+  localStorage.setItem('oficinapro_initialized', 'true');
+};
 
 // --- LOCAL STORAGE DATABASE BACKEND FOR OFFLINE FALLBACK ---
 const getStorageItem = <T>(key: string, defaultValue: T): T => {
@@ -73,101 +173,105 @@ const setStorageItem = <T>(key: string, value: T): void => {
   }
 };
 
-// Seed initial data to make the app beautiful on first load if it's empty
+// Seed initial data to make the app beautiful on first load if it has never been initialized
 const seedDatabase = () => {
-  const clients = getStorageItem<Client[]>('oficinapro_clients', []);
-  if (clients.length === 0) {
-    const initialClients: Client[] = [
-      {
-        id: 'c1',
-        name: 'Carlos Silva',
-        phone: '(11) 98765-4321',
-        notes: 'Cliente antigo, prefere peças originais.',
-        user_id: null,
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 'c2',
-        name: 'Mariana Costa',
-        phone: '(21) 99888-7766',
-        notes: 'Ligar antes de executar qualquer serviço extra.',
-        user_id: null,
-        created_at: new Date().toISOString(),
-      },
-    ];
-    const initialVehicles: Vehicle[] = [
-      {
-        id: 'v1',
-        client_id: 'c1',
-        plate: 'BRA2E19',
-        brand: 'Toyota',
-        model: 'Corolla',
-        year: 2021,
-        notes: 'Todas as revisões feitas em concessionária.',
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 'v2',
-        client_id: 'c2',
-        plate: 'FLM4H22',
-        brand: 'Honda',
-        model: 'Civic',
-        year: 2019,
-        notes: 'Barulho na suspensão dianteira.',
-        created_at: new Date().toISOString(),
-      },
-    ];
-    const initialOrders: ServiceOrder[] = [
-      {
-        id: 'o1',
-        vehicle_id: 'v1',
-        client_id: 'c1',
-        order_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        mileage: 45000,
-        status: 'fechada',
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 'o2',
-        vehicle_id: 'v2',
-        client_id: 'c2',
-        order_date: new Date().toISOString().split('T')[0],
-        mileage: 62000,
-        status: 'aberta',
-        created_at: new Date().toISOString(),
-      },
-    ];
-    const initialItems: OrderItem[] = [
-      {
-        id: 'i1',
-        order_id: 'o1',
-        item_type: 'servico',
-        description: 'Revisão de 45.000 km',
-        price: 350.0,
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 'i2',
-        order_id: 'o1',
-        item_type: 'peca',
-        description: 'Filtro de óleo e óleo sintético',
-        price: 180.0,
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: 'i3',
-        order_id: 'o2',
-        item_type: 'servico',
-        description: 'Diagnóstico de barulho na suspensão',
-        price: 120.0,
-        created_at: new Date().toISOString(),
-      },
-    ];
+  const isInitialized = localStorage.getItem('oficinapro_initialized');
+  if (!isInitialized) {
+    localStorage.setItem('oficinapro_initialized', 'true');
+    const clients = getStorageItem<Client[]>('oficinapro_clients', []);
+    if (clients.length === 0) {
+      const initialClients: Client[] = [
+        {
+          id: 'c1',
+          name: 'Carlos Silva',
+          phone: '(11) 98765-4321',
+          notes: 'Cliente antigo, prefere peças originais.',
+          user_id: null,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'c2',
+          name: 'Mariana Costa',
+          phone: '(21) 99888-7766',
+          notes: 'Ligar antes de executar qualquer serviço extra.',
+          user_id: null,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      const initialVehicles: Vehicle[] = [
+        {
+          id: 'v1',
+          client_id: 'c1',
+          plate: 'BRA2E19',
+          brand: 'Toyota',
+          model: 'Corolla',
+          year: 2021,
+          notes: 'Todas as revisões feitas em concessionária.',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'v2',
+          client_id: 'c2',
+          plate: 'FLM4H22',
+          brand: 'Honda',
+          model: 'Civic',
+          year: 2019,
+          notes: 'Barulho na suspensão dianteira.',
+          created_at: new Date().toISOString(),
+        },
+      ];
+      const initialOrders: ServiceOrder[] = [
+        {
+          id: 'o1',
+          vehicle_id: 'v1',
+          client_id: 'c1',
+          order_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          mileage: 45000,
+          status: 'fechada',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'o2',
+          vehicle_id: 'v2',
+          client_id: 'c2',
+          order_date: new Date().toISOString().split('T')[0],
+          mileage: 62000,
+          status: 'aberta',
+          created_at: new Date().toISOString(),
+        },
+      ];
+      const initialItems: OrderItem[] = [
+        {
+          id: 'i1',
+          order_id: 'o1',
+          item_type: 'servico',
+          description: 'Revisão de 45.000 km',
+          price: 350.0,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'i2',
+          order_id: 'o1',
+          item_type: 'peca',
+          description: 'Filtro de óleo e óleo sintético',
+          price: 180.0,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'i3',
+          order_id: 'o2',
+          item_type: 'servico',
+          description: 'Diagnóstico de barulho na suspensão',
+          price: 120.0,
+          created_at: new Date().toISOString(),
+        },
+      ];
 
-    setStorageItem('oficinapro_clients', initialClients);
-    setStorageItem('oficinapro_vehicles', initialVehicles);
-    setStorageItem('oficinapro_service_orders', initialOrders);
-    setStorageItem('oficinapro_order_items', initialItems);
+      setStorageItem('oficinapro_clients', initialClients);
+      setStorageItem('oficinapro_vehicles', initialVehicles);
+      setStorageItem('oficinapro_service_orders', initialOrders);
+      setStorageItem('oficinapro_order_items', initialItems);
+    }
   }
 };
 
@@ -449,6 +553,14 @@ const mockSupabase = {
 };
 
 // Export actual or mock based on availability
-export const supabase = isRealSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : (mockSupabase as any);
+let realClient: any = null;
+if (isRealSupabaseConfigured) {
+  try {
+    realClient = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (err) {
+    console.error('Erro ao conectar ao Supabase:', err);
+    realClient = null;
+  }
+}
+
+export const supabase = realClient || (mockSupabase as any);

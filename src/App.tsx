@@ -8,6 +8,7 @@ import OrdersView from './components/OrdersView';
 import OrderDetailView from './components/OrderDetailView';
 import OrderNewView from './components/OrderNewView';
 import ImportView from './components/ImportView';
+import SettingsView from './components/SettingsView';
 import { theme } from './lib/theme';
 import {
   Wrench,
@@ -18,6 +19,7 @@ import {
   LogOut,
   Loader2,
   FileSpreadsheet,
+  Settings,
 } from 'lucide-react';
 
 type ViewState = {
@@ -62,6 +64,8 @@ function MainApp() {
         return <OrdersView onNavigate={navigateTo} />;
       case 'import':
         return <ImportView />;
+      case 'settings':
+        return <SettingsView />;
       case 'order-details':
         return (
           <OrderDetailView
@@ -86,6 +90,7 @@ function MainApp() {
     { id: 'clients', label: 'Clientes', icon: Users, color: theme.primary },
     { id: 'vehicles', label: 'Veículos', icon: Car, color: theme.secondary },
     { id: 'orders', label: 'Serviços', icon: ClipboardList, color: theme.accent },
+    { id: 'settings', label: 'Configurações', icon: Settings, color: theme.primary },
   ];
 
   return (

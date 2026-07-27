@@ -39,8 +39,9 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
       if (clientsRes.error) throw clientsRes.error;
       setVehicles((vehiclesRes.data ?? []) as VehicleRow[]);
       setClients(clientsRes.data ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar veículos');
+    } catch (err: any) {
+      const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar veículos');
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -140,7 +141,7 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
   );
 
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={loadData} />;
 
   return (
     <div className="space-y-6">

@@ -82,8 +82,9 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
         .sort((a, b) => new Date(b.order_date).getTime() - new Date(a.order_date).getTime())
         .slice(0, 6);
       setRecentOrders(sorted as unknown as RecentOrder[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
+    } catch (err: any) {
+      const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao consultar o banco de dados Supabase');
+      setError(msg);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -100,7 +101,7 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
   };
 
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={loadData} />;
 
   const todayFormatted = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',

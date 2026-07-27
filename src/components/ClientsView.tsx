@@ -31,8 +31,9 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
         .order('name', { ascending: true });
       if (error) throw error;
       setClients(data ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar clientes');
+    } catch (err: any) {
+      const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar clientes');
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -110,7 +111,7 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
   );
 
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={loadClients} />;
 
   return (
     <div className="space-y-6">

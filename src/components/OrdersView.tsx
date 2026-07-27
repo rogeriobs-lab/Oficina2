@@ -35,8 +35,9 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
         .order('order_date', { ascending: false });
       if (error) throw error;
       setOrders((data ?? []) as unknown as OrderRow[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar ordens');
+    } catch (err: any) {
+      const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar ordens de serviço');
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -56,7 +57,7 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
   });
 
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={loadOrders} />;
 
   return (
     <div className="space-y-6">
