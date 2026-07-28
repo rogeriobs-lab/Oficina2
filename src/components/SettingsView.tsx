@@ -6,6 +6,7 @@ import {
   exportSqlBackup,
   importDataBackup,
   syncLocalToSupabase,
+  generateQuickConnectUrl,
 } from '../lib/supabase';
 import {
   Database,
@@ -26,6 +27,10 @@ import {
   Loader2,
   Smartphone,
   Laptop,
+  Share2,
+  Copy,
+  Check,
+  MessageCircle,
 } from 'lucide-react';
 
 export default function SettingsView() {
@@ -38,6 +43,24 @@ export default function SettingsView() {
   const [exportingJson, setExportingJson] = useState(false);
   const [exportingSql, setExportingSql] = useState(false);
   const [syncingCloud, setSyncingCloud] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const handleCopyQuickLink = () => {
+    const quickLink = generateQuickConnectUrl();
+    if (quickLink) {
+      navigator.clipboard.writeText(quickLink);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 3000);
+    }
+  };
+
+  const handleShareWhatsApp = () => {
+    const quickLink = generateQuickConnectUrl();
+    if (quickLink) {
+      const message = encodeURIComponent(`📱 Link de Conexão Nuvem para o OficinaPro:\n\nAbra este link no celular para conectar automaticamente ao banco Supabase:\n${quickLink}`);
+      window.open(`https://wa.me/?text=${message}`, '_blank');
+    }
+  };
 
   const handleSyncToCloud = async () => {
     setSyncingCloud(true);
@@ -299,26 +322,48 @@ export default function SettingsView() {
           </div>
         </form>
 
-        {/* Multi-device / Vercel instructions */}
-        <div className="p-4 bg-slate-900 text-slate-100 rounded-2xl border border-slate-800 space-y-2.5 mt-4">
-          <div className="flex items-center gap-2 font-bold text-amber-400 text-xs">
-            <Smartphone className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>📱 Como conectar o Celular e a Vercel ao mesmo Supabase:</span>
+        {/* Multi-device / Quick Connect Link Section */}
+        {credentials.isCloud && (
+          <div className="p-5 bg-sky-950 text-slate-100 rounded-2xl border border-sky-800 space-y-3.5 mt-4">
+            <div className="flex items-center gap-2 font-black text-sky-400 text-xs sm:text-sm">
+              <Smartphone className="w-4.5 h-4.5 text-sky-400 shrink-0" />
+              <span>📱 Conectar seu Outro Celular Instantaneamente no Modo Nuvem:</span>
+            </div>
+            <p className="text-[11px] sm:text-xs text-slate-300 leading-relaxed">
+              Como o outro celular abriu o aplicativo pela primeira vez, ele iniciou no modo local por segurança. Clique abaixo para enviar o link de conexão para o seu celular — ao clicar no link no celular, ele se conectará na hora à Nuvem Supabase!
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={handleShareWhatsApp}
+                className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+              >
+                <MessageCircle className="w-4 h-4 text-emerald-100" />
+                <span>Enviar Link via WhatsApp</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyQuickLink}
+                className="flex-1 px-4 py-2.5 bg-sky-700 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+              >
+                {copiedLink ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4 text-sky-200" />}
+                <span>{copiedLink ? 'Link Copiado!' : 'Copiar Link de Conexão'}</span>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-sky-900/80 text-[11px] text-slate-400 space-y-1.5">
+              <div className="flex items-start gap-1.5 font-semibold text-amber-300">
+                <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <span>Para forçar SEMPRE o modo Nuvem em todos os celulares permanentemente:</span>
+              </div>
+              <p className="text-slate-300 leading-relaxed pl-5">
+                Na Vercel (ou no painel da sua hospedagem web), adicione as Variáveis de Ambiente <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code>. Assim, qualquer pessoa ou celular que abrir o site entrará 100% automático na Nuvem!
+              </p>
+            </div>
           </div>
-          <p className="text-[11px] text-slate-300 leading-relaxed">
-            As credenciais salvas acima ficam salvas apenas no navegador deste computador. Para que a versão da Vercel conecte automaticamente o seu celular ao mesmo banco do Supabase:
-          </p>
-          <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-200 font-medium pl-1 leading-relaxed">
-            <li>Acesse <a href="https://vercel.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-sky-400 underline font-bold">vercel.com</a> &gt; selecione o projeto <strong>OficinaPro</strong></li>
-            <li>Vá em <strong>Settings</strong> &gt; <strong>Environment Variables</strong></li>
-            <li>Adicione a chave <code>VITE_SUPABASE_URL</code> com o valor da sua URL do Supabase</li>
-            <li>Adicione a chave <code>VITE_SUPABASE_ANON_KEY</code> com o valor da sua Chave Anon do Supabase</li>
-            <li>Vá na aba <strong>Deployments</strong>, clique nos 3 pontinhos do último deploy e selecione <strong>Redeploy</strong>!</li>
-          </ol>
-          <div className="pt-1.5 border-t border-slate-800 text-[11px] text-amber-300/90 font-medium">
-            💡 <em>Alternativa rápida:</em> No seu celular, abra o aplicativo, acesse este mesmo menu de <strong>Configurações</strong> e cole a URL e a Chave do Supabase. O celular conectará na hora!
-          </div>
-        </div>
+        )}
 
         {/* Sync Local PC Data to Supabase Button */}
         {credentials.isCloud && (

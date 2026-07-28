@@ -69,6 +69,35 @@ const isValidUrl = (urlStr: string): boolean => {
   }
 };
 
+// Check if URL parameters provide credentials (e.g. when opening connection link on phone)
+const checkUrlCredentials = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashStr = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+    const hashParams = new URLSearchParams(hashStr);
+
+    const paramUrl = searchParams.get('supabase_url') || searchParams.get('url') || hashParams.get('supabase_url') || hashParams.get('url');
+    const paramKey = searchParams.get('supabase_key') || searchParams.get('key') || hashParams.get('supabase_key') || hashParams.get('key');
+
+    if (paramUrl && paramKey) {
+      const formatted = formatSupabaseUrl(paramUrl);
+      if (isValidUrl(formatted)) {
+        localStorage.setItem('VITE_SUPABASE_URL', formatted);
+        localStorage.setItem('VITE_SUPABASE_ANON_KEY', paramKey.trim());
+        // Clean URL query string without reloading
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao ler credenciais da URL:', err);
+  }
+};
+
+// Run check on load
+checkUrlCredentials();
+
 // Check if real Supabase environment variables or localStorage overrides are available
 const getEnvOrStorage = (envKey: string): string => {
   try {
@@ -96,6 +125,13 @@ export const getSupabaseCredentials = () => {
     key: supabaseAnonKey,
     isCloud: isRealSupabaseConfigured,
   };
+};
+
+export const generateQuickConnectUrl = () => {
+  const { url, key } = getSupabaseCredentials();
+  if (!url || !key) return '';
+  const baseUrl = window.location.origin + window.location.pathname;
+  return `${baseUrl}?url=${encodeURIComponent(url)}&key=${encodeURIComponent(key)}`;
 };
 
 export const saveSupabaseCredentials = (url: string, key: string) => {

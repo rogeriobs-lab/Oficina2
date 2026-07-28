@@ -164,6 +164,11 @@ export default function OrderDetailView({ orderId, onBack }: OrderDetailViewProp
     let message = `*SERVIÇO Nº ${orderNumber ? orderNumber.toUpperCase() : order.id.slice(0, 8).toUpperCase()}*\n`;
     message += `*Cliente:* ${order.clients?.name || 'Cliente'}\n`;
     message += `*Veículo:* ${order.vehicles?.brand || ''} ${order.vehicles?.model || ''} (${order.vehicles?.plate || ''})\n`;
+    if (order.mileage !== null && order.mileage !== undefined && order.mileage !== 0) {
+      message += `*Quilometragem:* ${Number(order.mileage).toLocaleString('pt-BR')} km\n`;
+    } else if (order.mileage === 0) {
+      message += `*Quilometragem:* 0 km\n`;
+    }
     message += `*Data:* ${formatDate(order.order_date)}\n\n`;
 
     if (servs.length > 0) {

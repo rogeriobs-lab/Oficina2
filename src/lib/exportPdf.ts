@@ -56,7 +56,7 @@ const buildOrderHtml = (order: PdfOrder, customOrderNum?: string): string => {
     .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0F4C81; padding-bottom: 16px; margin-bottom: 24px; }
     .header h1 { font-size: 22px; color: #0F4C81; }
     .header .status { font-size: 13px; font-weight: 600; padding: 4px 14px; border-radius: 20px; background: #E8F5E9; color: #2E7D32; }
-    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
     .info-card { background: #F5F7FA; border-radius: 10px; padding: 14px 16px; }
     .info-label { font-size: 11px; color: #8E9BAF; font-weight: 500; text-transform: uppercase; margin-bottom: 4px; }
     .info-value { font-size: 15px; font-weight: 600; color: #1A2332; }
@@ -94,7 +94,10 @@ const buildOrderHtml = (order: PdfOrder, customOrderNum?: string): string => {
       <div class="info-value">${order.vehicles?.brand ?? ''} ${order.vehicles?.model ?? ''}${order.vehicles?.year ? ` (${order.vehicles.year})` : ''}</div>
       <div class="info-sub">${order.vehicles?.plate ?? '—'}</div>
     </div>
-    ${order.mileage != null ? `<div class="info-card"><div class="info-label">Quilometragem</div><div class="info-value">${order.mileage.toLocaleString('pt-BR')} km</div></div>` : ''}
+    <div class="info-card">
+      <div class="info-label">Quilometragem</div>
+      <div class="info-value">${order.mileage != null && order.mileage !== undefined && order.mileage !== 0 ? `${Number(order.mileage).toLocaleString('pt-BR')} km` : (order.mileage === 0 ? '0 km' : '—')}</div>
+    </div>
   </div>
 
   ${sectionTable('Serviços', servicos, totalServicos)}
