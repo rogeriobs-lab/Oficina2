@@ -52,10 +52,10 @@ export default function ImportView() {
     } else if (type === 'vehicles') {
       return [
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
-        { dbField: 'brand', label: 'Marca (ex: Toyota)', required: true, mappedIndex: -1 },
-        { dbField: 'model', label: 'Modelo (ex: Corolla)', required: true, mappedIndex: -1 },
+        { dbField: 'brand', label: 'Marca (ex: Toyota)', required: false, mappedIndex: -1 },
+        { dbField: 'model', label: 'Modelo (ex: Corolla)', required: false, mappedIndex: -1 },
         { dbField: 'year', label: 'Ano de Fabricação', required: false, mappedIndex: -1 },
-        { dbField: 'client_identifier', label: 'Proprietário (Nome ou Telefone)', required: true, mappedIndex: -1 },
+        { dbField: 'client_identifier', label: 'Proprietário (Nome ou Telefone)', required: false, mappedIndex: -1 },
         { dbField: 'notes', label: 'Observações do Veículo', required: false, mappedIndex: -1 },
       ];
     } else {
@@ -262,39 +262,78 @@ export default function ImportView() {
       };
 
       if (importType === 'clients') {
-        const clientsToInsert: Partial<Client>[] = [];
+        const { data: existingClientsData } = await supabase.from('clients').select('*');
+        const clientsMap = new Map<string, any>();
+        (existingClientsData || []).forEach((c: Client) => {
+          if (c.name) clientsMap.set(c.name.toLowerCase().trim(), c);
+          if (c.phone) clientsMap.set(c.phone.trim(), c);
+        });
 
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
           const name = getMappedValue(row, 'name');
-          if (!name) {
+          if (!name || !name.trim()) {
             failedCount++;
             errors.push(`Linha ${i + 2}: Nome do cliente é obrigatório e está em branco.`);
             continue;
           }
 
-          clientsToInsert.push({
-            name: name.trim(),
-            phone: getMappedValue(row, 'phone')?.trim() || null,
-            notes: getMappedValue(row, 'notes')?.trim() || null,
-          });
-        }
+          const trimmedName = name.trim();
+          const phone = getMappedValue(row, 'phone')?.trim() || null;
+          const notes = getMappedValue(row, 'notes')?.trim() || null;
 
-        // Insert in batches or individually to handle mock DB safely
-        for (const client of clientsToInsert) {
+          const nameKey = trimmedName.toLowerCase();
+          const existingClient = clientsMap.get(nameKey) || (phone ? clientsMap.get(phone) : null);
+
+          const clientPayload = {
+            name: trimmedName,
+            phone: phone || existingClient?.phone || null,
+            notes: notes || existingClient?.notes || null,
+          };
+
           try {
-            const { error } = await supabase.from('clients').insert(client);
-            if (error) throw error;
-            successCount++;
+            if (existingClient) {
+              const { error } = await supabase
+                .from('clients')
+                .update(clientPayload)
+                .eq('id', existingClient.id);
+              if (error) throw error;
+              const updatedClient = { ...existingClient, ...clientPayload };
+              clientsMap.set(nameKey, updatedClient);
+              if (phone) clientsMap.set(phone, updatedClient);
+              successCount++;
+            } else {
+              const { data: newC, error } = await supabase
+                .from('clients')
+                .insert(clientPayload)
+                .select()
+                .single();
+              if (error) throw error;
+              const createdClient = newC || { id: 'c_' + Math.random().toString(36).substring(2, 9), ...clientPayload };
+              clientsMap.set(nameKey, createdClient);
+              if (phone) clientsMap.set(phone, createdClient);
+              successCount++;
+            }
           } catch (err) {
             failedCount++;
-            errors.push(`Erro ao importar "${client.name}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+            errors.push(`Erro ao importar "${trimmedName}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
           }
         }
       } else if (importType === 'vehicles') {
         // Importing vehicles
-        // For vehicles, we also need client_id. We'll pre-fetch all clients to match them,
-        // and if a client doesn't exist, we'll dynamically create it!
+        // Pre-fetch existing vehicles to detect duplicates and update them instead of creating extra entries
+        const { data: existingVehiclesData } = await supabase.from('vehicles').select('*');
+        const vehiclesMap = new Map<string, any>(); // plate key -> vehicle
+        (existingVehiclesData || []).forEach((v: any) => {
+          if (v.plate) {
+            const rawPlate = v.plate.toUpperCase().trim();
+            const cleanPlate = rawPlate.replace(/[^A-Z0-9]/g, '');
+            vehiclesMap.set(rawPlate, v);
+            if (cleanPlate) vehiclesMap.set(cleanPlate, v);
+          }
+        });
+
+        // Pre-fetch clients to link vehicles
         const { data: existingClients } = await supabase.from('clients').select('*');
         const clientsMap = new Map<string, string>(); // Name/Phone -> ID
         (existingClients || []).forEach((c: Client) => {
@@ -311,23 +350,25 @@ export default function ImportView() {
           const model = getMappedValue(row, 'model');
           const clientIdent = getMappedValue(row, 'client_identifier');
 
-          if (!plate || !brand || !model || !clientIdent) {
+          if (!plate || !plate.trim()) {
             failedCount++;
-            const missing = [];
-            if (!plate) missing.push('Placa');
-            if (!brand) missing.push('Marca');
-            if (!model) missing.push('Modelo');
-            if (!clientIdent) missing.push('Proprietário');
-            errors.push(`Linha ${i + 2}: Dados obrigatórios ausentes (${missing.join(', ')}).`);
+            errors.push(`Linha ${i + 2}: Placa do veículo é obrigatória e está em branco.`);
             continue;
           }
 
+          const formattedPlate = plate.trim().toUpperCase();
+          const cleanPlate = formattedPlate.replace(/[^A-Z0-9]/g, '');
+
+          // Check if vehicle already exists in DB or was processed earlier in this import
+          const existingVehicle = vehiclesMap.get(cleanPlate) || vehiclesMap.get(formattedPlate);
+
           // Resolve or create client
           let clientId = '';
-          const clientKey = clientIdent.toLowerCase().trim();
-          if (clientsMap.has(clientKey)) {
+          const clientKey = clientIdent ? clientIdent.toLowerCase().trim() : '';
+
+          if (clientKey && clientsMap.has(clientKey)) {
             clientId = clientsMap.get(clientKey)!;
-          } else {
+          } else if (clientKey) {
             // Create a new client on the fly!
             try {
               const newClientPayload = {
@@ -357,13 +398,44 @@ export default function ImportView() {
                 }
               }
             } catch (err) {
-              failedCount++;
-              errors.push(`Linha ${i + 2} (Placa ${plate}): Não foi possível criar o proprietário "${clientIdent}".`);
-              continue;
+              const defaultKey = 'cliente importado';
+              if (clientsMap.has(defaultKey)) {
+                clientId = clientsMap.get(defaultKey)!;
+              } else if (existingClients && existingClients.length > 0) {
+                clientId = existingClients[0].id;
+              }
+            }
+          } else {
+            // Proprietor not provided in row, find or create default client
+            const defaultKey = 'cliente importado';
+            if (clientsMap.has(defaultKey)) {
+              clientId = clientsMap.get(defaultKey)!;
+            } else {
+              try {
+                const { data: defaultClient } = await supabase
+                  .from('clients')
+                  .insert({
+                    name: 'Cliente Importado',
+                    notes: 'Criado para veículos importados sem proprietário definido.',
+                  })
+                  .select('id')
+                  .single();
+
+                if (defaultClient) {
+                  clientId = defaultClient.id;
+                  clientsMap.set(defaultKey, clientId);
+                } else if (existingClients && existingClients.length > 0) {
+                  clientId = existingClients[0].id;
+                }
+              } catch (err) {
+                if (existingClients && existingClients.length > 0) {
+                  clientId = existingClients[0].id;
+                }
+              }
             }
           }
 
-          // Insert vehicle
+          // Parse year
           const yearRaw = getMappedValue(row, 'year');
           let year: number | null = null;
           if (yearRaw) {
@@ -371,22 +443,51 @@ export default function ImportView() {
             if (!isNaN(parsedYear)) year = parsedYear;
           }
 
+          const newBrand = brand && brand.trim() ? brand.trim() : null;
+          const newModel = model && model.trim() ? model.trim() : null;
+          const newNotes = getMappedValue(row, 'notes')?.trim() || null;
+
           const vehiclePayload = {
-            plate: plate.trim().toUpperCase(),
-            brand: brand.trim(),
-            model: model.trim(),
-            year,
-            client_id: clientId,
-            notes: getMappedValue(row, 'notes')?.trim() || null,
+            plate: formattedPlate,
+            brand: newBrand || (existingVehicle?.brand && existingVehicle.brand !== 'Não informada' ? existingVehicle.brand : 'Não informada'),
+            model: newModel || (existingVehicle?.model && existingVehicle.model !== 'Não informado' ? existingVehicle.model : 'Não informado'),
+            year: year ?? (existingVehicle?.year || null),
+            client_id: clientId || existingVehicle?.client_id || null,
+            notes: newNotes || existingVehicle?.notes || null,
           };
 
           try {
-            const { error: vehicleErr } = await supabase.from('vehicles').insert(vehiclePayload);
-            if (vehicleErr) throw vehicleErr;
-            successCount++;
+            if (existingVehicle) {
+              // Update existing vehicle instead of duplicating
+              const { error: vehicleErr } = await supabase
+                .from('vehicles')
+                .update(vehiclePayload)
+                .eq('id', existingVehicle.id);
+
+              if (vehicleErr) throw vehicleErr;
+
+              const updatedVehicle = { ...existingVehicle, ...vehiclePayload };
+              vehiclesMap.set(formattedPlate, updatedVehicle);
+              if (cleanPlate) vehiclesMap.set(cleanPlate, updatedVehicle);
+              successCount++;
+            } else {
+              // Insert new vehicle
+              const { data: newV, error: vehicleErr } = await supabase
+                .from('vehicles')
+                .insert(vehiclePayload)
+                .select()
+                .single();
+
+              if (vehicleErr) throw vehicleErr;
+
+              const createdVehicle = newV || { id: 'v_' + Math.random().toString(36).substring(2, 9), ...vehiclePayload };
+              vehiclesMap.set(formattedPlate, createdVehicle);
+              if (cleanPlate) vehiclesMap.set(cleanPlate, createdVehicle);
+              successCount++;
+            }
           } catch (err) {
             failedCount++;
-            errors.push(`Erro ao importar veículo "${plate}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+            errors.push(`Erro ao importar veículo "${formattedPlate}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
           }
         }
       } else {
