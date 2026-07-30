@@ -73,7 +73,7 @@ export default function ImportView() {
         { dbField: 'brand', label: 'Marca (ex: Toyota)', required: false, mappedIndex: -1 },
         { dbField: 'model', label: 'Modelo (ex: Corolla)', required: false, mappedIndex: -1 },
         { dbField: 'year', label: 'Ano de Fabricação', required: false, mappedIndex: -1 },
-        { dbField: 'client_identifier', label: 'Proprietário (Nome ou Telefone)', required: false, mappedIndex: -1 },
+        { dbField: 'client_identifier', label: 'Proprietário (Nome ou Telefone)', required: true, mappedIndex: -1 },
         { dbField: 'notes', label: 'Observações do Veículo', required: false, mappedIndex: -1 },
       ];
     } else {
@@ -430,10 +430,14 @@ export default function ImportView() {
 
         // Pre-fetch clients to link vehicles
         const { data: existingClients } = await supabase.from('clients').select('*');
-        const clientsMap = new Map<string, string>(); // Normalized Name/Phone -> ID
+        const clientsMap = new Map<string, string>(); // Normalized Name/Phone/CleanPhone -> ID
         (existingClients || []).forEach((c: Client) => {
           if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
-          if (c.phone) clientsMap.set(c.phone.trim(), c.id);
+          if (c.phone) {
+            clientsMap.set(c.phone.trim(), c.id);
+            const cleanP = c.phone.replace(/\D/g, '');
+            if (cleanP) clientsMap.set(cleanP, c.id);
+          }
         });
 
         for (let i = 0; i < rows.length; i++) {
@@ -449,6 +453,12 @@ export default function ImportView() {
             continue;
           }
 
+          if (!clientIdent || !clientIdent.trim()) {
+            failedCount++;
+            errors.push(`Linha ${i + 2}: Proprietário (Nome ou Telefone do cliente) é obrigatório e está em branco.`);
+            continue;
+          }
+
           const formattedPlate = plate.trim().toUpperCase();
           const cleanPlate = formattedPlate.replace(/[^A-Z0-9]/g, '');
 
@@ -457,78 +467,50 @@ export default function ImportView() {
 
           // Resolve or create client
           let clientId = '';
-          if (clientIdent && clientIdent.trim()) {
-            const rawIdent = clientIdent.trim();
-            const normIdent = normalizeKey(rawIdent);
+          const rawIdent = clientIdent.trim();
+          const normIdent = normalizeKey(rawIdent);
+          const cleanIdentPhone = rawIdent.replace(/\D/g, '');
 
-            if (clientsMap.has(normIdent)) {
-              clientId = clientsMap.get(normIdent)!;
-            } else {
-              // Create a new client on the fly!
-              try {
-                const newClientPayload = {
-                  name: rawIdent,
-                  phone: null,
-                  notes: 'Cadastrado automaticamente via importador de veículos.',
-                };
-                const { data: newClient, error: clientErr } = await supabase
-                  .from('clients')
-                  .insert(newClientPayload)
-                  .select()
-                  .single();
-
-                if (clientErr) throw clientErr;
-
-                if (newClient && newClient.id) {
-                  clientId = newClient.id;
-                } else {
-                  const { data: allClients } = await supabase.from('clients').select('*');
-                  const matched = (allClients || []).find((c: Client) => normalizeKey(c.name) === normIdent);
-                  if (matched) {
-                    clientId = matched.id;
-                  } else {
-                    clientId = 'c_' + Math.random().toString(36).substring(2, 9);
-                  }
-                }
-
-                clientsMap.set(normIdent, clientId);
-              } catch (err) {
-                console.error('Erro ao criar cliente para veículo:', err);
-                const defaultKey = 'cliente importado';
-                if (clientsMap.has(defaultKey)) {
-                  clientId = clientsMap.get(defaultKey)!;
-                } else if (existingClients && existingClients.length > 0) {
-                  clientId = existingClients[0].id;
-                }
-              }
-            }
+          if (clientsMap.has(normIdent)) {
+            clientId = clientsMap.get(normIdent)!;
+          } else if (cleanIdentPhone && clientsMap.has(cleanIdentPhone)) {
+            clientId = clientsMap.get(cleanIdentPhone)!;
           } else {
-            // Proprietor not provided in row, find or create default client
-            const defaultKey = 'cliente importado';
-            if (clientsMap.has(defaultKey)) {
-              clientId = clientsMap.get(defaultKey)!;
-            } else {
-              try {
-                const { data: defaultClient } = await supabase
-                  .from('clients')
-                  .insert({
-                    name: 'Cliente Importado',
-                    notes: 'Criado para veículos importados sem proprietário definido.',
-                  })
-                  .select('id')
-                  .single();
+            // Create a new client on the fly!
+            try {
+              const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
+              const newClientPayload = {
+                name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
+                phone: isPhoneLike ? rawIdent : null,
+                notes: 'Cadastrado automaticamente via importador de veículos.',
+              };
+              const { data: newClient, error: clientErr } = await supabase
+                .from('clients')
+                .insert(newClientPayload)
+                .select()
+                .single();
 
-                if (defaultClient && defaultClient.id) {
-                  clientId = defaultClient.id;
-                  clientsMap.set(defaultKey, clientId);
-                } else if (existingClients && existingClients.length > 0) {
-                  clientId = existingClients[0].id;
-                }
-              } catch (err) {
-                if (existingClients && existingClients.length > 0) {
-                  clientId = existingClients[0].id;
+              if (clientErr) throw clientErr;
+
+              if (newClient && newClient.id) {
+                clientId = newClient.id;
+              } else {
+                const { data: allClients } = await supabase.from('clients').select('*');
+                const matched = (allClients || []).find((c: Client) => normalizeKey(c.name) === normIdent);
+                if (matched) {
+                  clientId = matched.id;
+                } else {
+                  clientId = 'c_' + Math.random().toString(36).substring(2, 9);
                 }
               }
+
+              clientsMap.set(normIdent, clientId);
+              if (cleanIdentPhone) clientsMap.set(cleanIdentPhone, clientId);
+            } catch (err) {
+              console.error('Erro ao criar cliente para veículo:', err);
+              failedCount++;
+              errors.push(`Linha ${i + 2} (Placa ${formattedPlate}): Não foi possível vincular ou criar o proprietário "${rawIdent}".`);
+              continue;
             }
           }
 
