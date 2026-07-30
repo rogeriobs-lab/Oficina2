@@ -80,7 +80,7 @@ export default function ImportView() {
       return [
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
         { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
-        { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: true, mappedIndex: -1 },
+        { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: false, mappedIndex: -1 },
         { dbField: 'item_type', label: 'Ref / Tipo (PÇ = Peça, MO = Mão de Obra)', required: false, mappedIndex: -1 },
         { dbField: 'price', label: 'Valor (R$)', required: false, mappedIndex: -1 },
         { dbField: 'mileage', label: 'Quilometragem (Km)', required: false, mappedIndex: -1 },
@@ -605,9 +605,9 @@ export default function ImportView() {
           const mileageRaw = getMappedValue(row, 'mileage');
           const statusRaw = getMappedValue(row, 'status');
 
-          if (!plateRaw || !serviceDesc) {
+          if (!plateRaw || !plateRaw.trim()) {
             failedCount++;
-            errors.push(`Linha ${i + 2}: Placa do veículo e Descrição do serviço são obrigatórias.`);
+            errors.push(`Linha ${i + 2}: Placa do veículo é obrigatória.`);
             continue;
           }
 
@@ -737,7 +737,7 @@ export default function ImportView() {
               const { error: itemErr } = await supabase.from('order_items').insert({
                 order_id: newOrder.id,
                 item_type: itemType,
-                description: serviceDesc.trim(),
+                description: (serviceDesc && serviceDesc.trim()) ? serviceDesc.trim() : (itemType === 'peca' ? 'Peça' : 'Serviço'),
                 price,
               });
               if (itemErr) throw itemErr;
