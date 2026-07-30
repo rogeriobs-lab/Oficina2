@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase, type Client, type Vehicle } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import {
@@ -69,6 +70,37 @@ export default function ImportView() {
     }
   };
 
+  // Auto-map headers to database fields
+  const autoMapHeaders = (detectedHeaders: string[], type: ImportType): ColumnMapping[] => {
+    const initialMaps = getInitialMappings(type);
+    return initialMaps.map((map) => {
+      const matchIndex = detectedHeaders.findIndex((header) => {
+        const h = header.toLowerCase().trim();
+        const label = map.label.toLowerCase();
+        const field = map.dbField.toLowerCase();
+        return (
+          h === field ||
+          h.includes(field) ||
+          h === label ||
+          h.includes(label) ||
+          (field === 'name' && (h === 'nome' || h === 'cliente' || h === 'nome cliente' || h === 'razao social' || h === 'fantasia' || h === 'nome do cliente')) ||
+          (field === 'phone' && (h === 'tel' || h === 'cel' || h === 'telefone' || h === 'celular' || h === 'whatsapp' || h === 'fone' || h === 'contato')) ||
+          (field === 'plate' && (h === 'placa' || h === 'placas' || h === 'veiculo_placa')) ||
+          (field === 'brand' && (h === 'marca' || h === 'fabricante' || h === 'montadora')) ||
+          (field === 'model' && (h === 'modelo' || h === 'veiculo' || h === 'carro')) ||
+          (field === 'year' && (h === 'ano' || h === 'modelo ano' || h === 'ano/modelo' || h === 'ano fab')) ||
+          (field === 'client_identifier' && (h === 'proprietario' || h === 'dono' || h === 'cliente_id' || h === 'cliente' || h === 'nome cliente')) ||
+          (field === 'order_date' && (h.includes('data') || h.includes('dt') || h === 'data_os')) ||
+          (field === 'service_description' && (h.includes('servico') || h.includes('desc') || h.includes('item') || h.includes('trabalho') || h.includes('manutencao'))) ||
+          (field === 'price' && (h.includes('valor') || h.includes('preco') || h.includes('total') || h === 'r$')) ||
+          (field === 'mileage' && (h.includes('km') || h.includes('quilometragem') || h.includes('horimetro'))) ||
+          (field === 'notes' && (h === 'obs' || h === 'observacoes' || h === 'notas' || h === 'observacao'))
+        );
+      });
+      return { ...map, mappedIndex: matchIndex };
+    });
+  };
+
   // Safe CSV/TSV Parser
   const parseDelimitedText = (text: string) => {
     if (!text.trim()) return;
@@ -116,38 +148,7 @@ export default function ImportView() {
 
     setHeaders(detectedHeaders);
     setRows(dataRows);
-
-    // Auto-map columns based on similarity
-    const initialMaps = getInitialMappings(importType);
-    const autoMapped = initialMaps.map((map) => {
-      // Find a matching header
-      const matchIndex = detectedHeaders.findIndex((header) => {
-        const h = header.toLowerCase();
-        const label = map.label.toLowerCase();
-        const field = map.dbField.toLowerCase();
-        return (
-          h === field ||
-          h.includes(field) ||
-          h === label ||
-          h.includes(label) ||
-          (field === 'name' && (h === 'nome' || h === 'cliente' || h === 'nome cliente')) ||
-          (field === 'phone' && (h === 'tel' || h === 'cel' || h === 'telefone' || h === 'celular' || h === 'whatsapp')) ||
-          (field === 'plate' && (h === 'placa' || h === 'placas')) ||
-          (field === 'brand' && (h === 'marca' || h === 'fabricante')) ||
-          (field === 'model' && (h === 'modelo' || h === 'veiculo')) ||
-          (field === 'year' && (h === 'ano' || h === 'modelo ano')) ||
-          (field === 'client_identifier' && (h === 'proprietario' || h === 'dono' || h === 'cliente_id' || h === 'cliente' || h === 'nome cliente')) ||
-          (field === 'order_date' && (h.includes('data') || h.includes('dt') || h === 'data_os')) ||
-          (field === 'service_description' && (h.includes('servico') || h.includes('desc') || h.includes('item') || h.includes('trabalho') || h.includes('manutencao'))) ||
-          (field === 'price' && (h.includes('valor') || h.includes('preco') || h.includes('total') || h === 'r$')) ||
-          (field === 'mileage' && (h.includes('km') || h.includes('quilometragem') || h.includes('horimetro'))) ||
-          (field === 'notes' && (h === 'obs' || h === 'observacoes' || h === 'notas'))
-        );
-      });
-      return { ...map, mappedIndex: matchIndex };
-    });
-
-    setMappings(autoMapped);
+    setMappings(autoMapHeaders(detectedHeaders, importType));
     setStep(3);
   };
 
@@ -155,13 +156,78 @@ export default function ImportView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setInputText(text);
-      parseDelimitedText(text);
-    };
-    reader.readAsText(file, 'UTF-8');
+    const fileName = file.name.toLowerCase();
+    const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+          
+          if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            alert('O arquivo Excel parece estar vazio.');
+            return;
+          }
+
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const jsonRows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '' });
+
+          if (!jsonRows || jsonRows.length === 0) {
+            alert('Nenhum dado encontrado na primeira aba da planilha.');
+            return;
+          }
+
+          // Format rows into string arrays
+          const formattedRows: string[][] = jsonRows
+            .map((row) =>
+              row.map((cell) => {
+                if (cell === null || cell === undefined) return '';
+                if (cell instanceof Date) {
+                  const day = String(cell.getDate()).padStart(2, '0');
+                  const month = String(cell.getMonth() + 1).padStart(2, '0');
+                  const year = cell.getFullYear();
+                  return `${day}/${month}/${year}`;
+                }
+                return String(cell).trim();
+              })
+            )
+            .filter((row) => row.some((cell) => cell.length > 0));
+
+          if (formattedRows.length === 0) {
+            alert('A planilha não contém dados válidos.');
+            return;
+          }
+
+          const detectedHeaders = formattedRows[0].map((h, i) => h.trim() || `Coluna ${i + 1}`);
+          const dataRows = formattedRows.slice(1);
+
+          setHeaders(detectedHeaders);
+          setRows(dataRows);
+          setMappings(autoMapHeaders(detectedHeaders, importType));
+          setStep(3);
+        } catch (err) {
+          console.error('Erro ao ler arquivo Excel:', err);
+          alert('Ocorreu um erro ao processar a planilha do Excel. Certifique-se de que o arquivo não está protegido ou corrompido.');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        // Check if user accidentally uploaded a binary file renamed as .csv
+        if (text.startsWith('PK\x03\x04') || text.includes('[Content_Types].xml')) {
+          alert('Este arquivo é uma planilha Excel (.xlsx). Por favor, selecione-o garantindo a extensão .xlsx');
+          return;
+        }
+        setInputText(text);
+        parseDelimitedText(text);
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
   };
 
   const handleMappingChange = (dbField: string, colIndex: number) => {
@@ -621,16 +687,16 @@ export default function ImportView() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Box A: Upload CSV */}
+              {/* Box A: Upload Excel or CSV */}
               <div className="border border-dashed border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center bg-slate-50/50 hover:bg-slate-50 transition-colors group">
-                <Upload className="w-10 h-10 text-slate-400 mb-3 group-hover:text-sky-500 transition-colors" />
-                <h4 className="text-xs font-extrabold text-slate-700">Enviar arquivo CSV / Texto</h4>
-                <p className="text-[11px] text-slate-400 max-w-xs mt-1">Selecione o arquivo exportado (.csv, .txt) do seu computador.</p>
-                <label className="mt-4 px-4 py-2 bg-white border border-gray-200 rounded-lg text-xs font-extrabold text-slate-700 hover:bg-gray-50 transition-all cursor-pointer shadow-sm">
-                  Selecionar Arquivo
+                <FileSpreadsheet className="w-10 h-10 text-slate-400 mb-3 group-hover:text-emerald-500 transition-colors" />
+                <h4 className="text-xs font-extrabold text-slate-700">Enviar arquivo Excel ou CSV</h4>
+                <p className="text-[11px] text-slate-400 max-w-xs mt-1">Selecione a planilha do Excel (.xlsx, .xls) ou arquivo CSV/TXT.</p>
+                <label className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold transition-all cursor-pointer shadow-sm">
+                  Selecionar Planilha Excel
                   <input
                     type="file"
-                    accept=".csv,.txt"
+                    accept=".xlsx,.xls,.csv,.txt"
                     className="hidden"
                     onChange={handleFileUpload}
                   />
