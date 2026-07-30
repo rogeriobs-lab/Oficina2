@@ -63,6 +63,7 @@ export default function ImportView() {
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
         { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: true, mappedIndex: -1 },
         { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: true, mappedIndex: -1 },
+        { dbField: 'item_type', label: 'Tipo do Item (Serviço ou Peça)', required: false, mappedIndex: -1 },
         { dbField: 'price', label: 'Valor (R$)', required: false, mappedIndex: -1 },
         { dbField: 'mileage', label: 'Quilometragem (Km)', required: false, mappedIndex: -1 },
         { dbField: 'status', label: 'Status (Aberta/Fechada)', required: false, mappedIndex: -1 },
@@ -690,9 +691,43 @@ export default function ImportView() {
             if (orderErr) throw orderErr;
 
             if (newOrder && newOrder.id) {
+              // Determine item type (Serviço or Peça)
+              const itemTypeRaw = getMappedValue(row, 'item_type');
+              let itemType: 'servico' | 'peca' = 'servico';
+
+              if (itemTypeRaw && itemTypeRaw.trim()) {
+                const normItemType = normalizeKey(itemTypeRaw);
+                if (
+                  normItemType.includes('peca') ||
+                  normItemType.includes('produto') ||
+                  normItemType === 'p' ||
+                  normItemType.includes('part')
+                ) {
+                  itemType = 'peca';
+                } else if (
+                  normItemType.includes('serv') ||
+                  normItemType.includes('obra') ||
+                  normItemType === 's'
+                ) {
+                  itemType = 'servico';
+                }
+              } else if (serviceDesc) {
+                // Auto-detect based on description keywords
+                const normDesc = normalizeKey(serviceDesc);
+                const pecaKeywords = [
+                  'oleo', 'filtro', 'vela', 'correia', 'disco', 'pastilha', 'pneu', 'peca',
+                  'amortecedor', 'bateria', 'fluido', 'aditivo', 'lampada', 'sensor', 'junta',
+                  'palheta', 'retentor', 'rolamento', 'cabo', 'radiador', 'terminal', 'pivo',
+                  'bomba', 'tambor', 'mangueira', 'kit'
+                ];
+                if (pecaKeywords.some((kw) => normDesc.includes(kw))) {
+                  itemType = 'peca';
+                }
+              }
+
               const { error: itemErr } = await supabase.from('order_items').insert({
                 order_id: newOrder.id,
-                item_type: 'servico',
+                item_type: itemType,
                 description: serviceDesc.trim(),
                 price,
               });
