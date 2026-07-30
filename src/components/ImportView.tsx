@@ -79,9 +79,9 @@ export default function ImportView() {
     } else {
       return [
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
-        { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: true, mappedIndex: -1 },
+        { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
         { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: true, mappedIndex: -1 },
-        { dbField: 'item_type', label: 'Tipo do Item (Serviço ou Peça)', required: false, mappedIndex: -1 },
+        { dbField: 'item_type', label: 'Ref / Tipo (PÇ = Peça, MO = Mão de Obra)', required: false, mappedIndex: -1 },
         { dbField: 'price', label: 'Valor (R$)', required: false, mappedIndex: -1 },
         { dbField: 'mileage', label: 'Quilometragem (Km)', required: false, mappedIndex: -1 },
         { dbField: 'status', label: 'Status (Aberta/Fechada)', required: false, mappedIndex: -1 },
@@ -172,6 +172,17 @@ export default function ImportView() {
             normH.includes('item') ||
             normH.includes('trabalho') ||
             normH.includes('manutencao')
+          )) ||
+          (field === 'item_type' && (
+            normH.includes('ref') ||
+            normH.includes('tipo') ||
+            normH.includes('categoria') ||
+            normH.includes('class') ||
+            normH === 'mo' ||
+            normH === 'pc' ||
+            normH === 'pç' ||
+            normH.includes('mo/pc') ||
+            normH.includes('pc/mo')
           )) ||
           (field === 'price' && (
             normH.includes('valor') ||
@@ -574,7 +585,12 @@ export default function ImportView() {
         const { data: existingVehicles } = await supabase.from('vehicles').select('*, clients(*)');
         const vehiclesMap = new Map<string, { id: string; client_id: string }>();
         (existingVehicles || []).forEach((v: any) => {
-          vehiclesMap.set(v.plate.toUpperCase().trim(), { id: v.id, client_id: v.client_id });
+          if (v.plate) {
+            const pClean = v.plate.toUpperCase().trim();
+            const pAlpha = pClean.replace(/[^A-Z0-9]/g, '');
+            vehiclesMap.set(pClean, { id: v.id, client_id: v.client_id });
+            if (pAlpha) vehiclesMap.set(pAlpha, { id: v.id, client_id: v.client_id });
+          }
         });
 
         const { data: existingClients } = await supabase.from('clients').select('*');
@@ -596,15 +612,16 @@ export default function ImportView() {
           }
 
           const plateClean = plateRaw.trim().toUpperCase();
+          const plateAlpha = plateClean.replace(/[^A-Z0-9]/g, '');
 
-          let vehicleInfo = vehiclesMap.get(plateClean);
+          let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
           if (!vehicleInfo) {
             try {
               if (!defaultClientId) {
                 const { data: newC } = await supabase
                   .from('clients')
                   .insert({
-                    name: 'Cliente Importado (Access)',
+                    name: 'Cliente Importado',
                     notes: 'Criado via importação de ordens de serviço',
                   })
                   .select('id')
@@ -625,9 +642,10 @@ export default function ImportView() {
                 .single();
 
               if (vErr) throw vErr;
-              if (newV) {
+              if (newV && newV.id) {
                 vehicleInfo = { id: newV.id, client_id: newV.client_id };
                 vehiclesMap.set(plateClean, vehicleInfo);
+                if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
               } else {
                 throw new Error('Falha ao registrar novo veículo');
               }
@@ -691,38 +709,29 @@ export default function ImportView() {
             if (orderErr) throw orderErr;
 
             if (newOrder && newOrder.id) {
-              // Determine item type (Serviço or Peça)
+              // Determine item type based on Ref field:
+              // PÇ / PC / PECA -> 'peca'
+              // MO / SERVIÇO / em branco -> 'servico'
               const itemTypeRaw = getMappedValue(row, 'item_type');
               let itemType: 'servico' | 'peca' = 'servico';
 
               if (itemTypeRaw && itemTypeRaw.trim()) {
-                const normItemType = normalizeKey(itemTypeRaw);
+                const normRef = normalizeKey(itemTypeRaw);
                 if (
-                  normItemType.includes('peca') ||
-                  normItemType.includes('produto') ||
-                  normItemType === 'p' ||
-                  normItemType.includes('part')
+                  normRef.includes('pc') ||
+                  normRef.includes('peca') ||
+                  normRef.includes('part') ||
+                  normRef.includes('produto') ||
+                  normRef === 'p'
                 ) {
                   itemType = 'peca';
-                } else if (
-                  normItemType.includes('serv') ||
-                  normItemType.includes('obra') ||
-                  normItemType === 's'
-                ) {
+                } else {
+                  // MO, Mão de obra, Serviço, etc.
                   itemType = 'servico';
                 }
-              } else if (serviceDesc) {
-                // Auto-detect based on description keywords
-                const normDesc = normalizeKey(serviceDesc);
-                const pecaKeywords = [
-                  'oleo', 'filtro', 'vela', 'correia', 'disco', 'pastilha', 'pneu', 'peca',
-                  'amortecedor', 'bateria', 'fluido', 'aditivo', 'lampada', 'sensor', 'junta',
-                  'palheta', 'retentor', 'rolamento', 'cabo', 'radiador', 'terminal', 'pivo',
-                  'bomba', 'tambor', 'mangueira', 'kit'
-                ];
-                if (pecaKeywords.some((kw) => normDesc.includes(kw))) {
-                  itemType = 'peca';
-                }
+              } else {
+                // If Ref field is blank or omitted, default to 'servico' (MO)
+                itemType = 'servico';
               }
 
               const { error: itemErr } = await supabase.from('order_items').insert({
