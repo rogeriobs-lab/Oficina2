@@ -70,12 +70,24 @@ export default function ImportView() {
     }
   };
 
+  // Helper to normalize strings for robust comparison (strips accents, collapses spaces, lowercase)
+  const normalizeKey = (str: string) => {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   // Auto-map headers to database fields
   const autoMapHeaders = (detectedHeaders: string[], type: ImportType): ColumnMapping[] => {
     const initialMaps = getInitialMappings(type);
     return initialMaps.map((map) => {
       const matchIndex = detectedHeaders.findIndex((header) => {
         const h = header.toLowerCase().trim();
+        const normH = normalizeKey(h);
         const label = map.label.toLowerCase();
         const field = map.dbField.toLowerCase();
         return (
@@ -83,18 +95,81 @@ export default function ImportView() {
           h.includes(field) ||
           h === label ||
           h.includes(label) ||
-          (field === 'name' && (h === 'nome' || h === 'cliente' || h === 'nome cliente' || h === 'razao social' || h === 'fantasia' || h === 'nome do cliente')) ||
-          (field === 'phone' && (h === 'tel' || h === 'cel' || h === 'telefone' || h === 'celular' || h === 'whatsapp' || h === 'fone' || h === 'contato')) ||
-          (field === 'plate' && (h === 'placa' || h === 'placas' || h === 'veiculo_placa')) ||
-          (field === 'brand' && (h === 'marca' || h === 'fabricante' || h === 'montadora')) ||
-          (field === 'model' && (h === 'modelo' || h === 'veiculo' || h === 'carro')) ||
-          (field === 'year' && (h === 'ano' || h === 'modelo ano' || h === 'ano/modelo' || h === 'ano fab')) ||
-          (field === 'client_identifier' && (h === 'proprietario' || h === 'dono' || h === 'cliente_id' || h === 'cliente' || h === 'nome cliente')) ||
-          (field === 'order_date' && (h.includes('data') || h.includes('dt') || h === 'data_os')) ||
-          (field === 'service_description' && (h.includes('servico') || h.includes('desc') || h.includes('item') || h.includes('trabalho') || h.includes('manutencao'))) ||
-          (field === 'price' && (h.includes('valor') || h.includes('preco') || h.includes('total') || h === 'r$')) ||
-          (field === 'mileage' && (h.includes('km') || h.includes('quilometragem') || h.includes('horimetro'))) ||
-          (field === 'notes' && (h === 'obs' || h === 'observacoes' || h === 'notas' || h === 'observacao'))
+          (field === 'name' && (
+            normH.includes('nome') ||
+            normH.includes('cliente') ||
+            normH.includes('proprietario') ||
+            normH.includes('razao') ||
+            normH.includes('fantasia') ||
+            normH.includes('dono') ||
+            normH.includes('contato') ||
+            normH.includes('titular') ||
+            normH.includes('comprador')
+          )) ||
+          (field === 'phone' && (
+            normH.includes('tel') ||
+            normH.includes('cel') ||
+            normH.includes('fone') ||
+            normH.includes('whats') ||
+            normH.includes('contato') ||
+            normH.includes('mobile') ||
+            normH.includes('telefone') ||
+            normH.includes('celular')
+          )) ||
+          (field === 'plate' && (
+            normH.includes('placa') ||
+            normH.includes('veiculo_placa') ||
+            normH === 'pl'
+          )) ||
+          (field === 'brand' && (
+            normH.includes('marca') ||
+            normH.includes('fabricante') ||
+            normH.includes('montadora')
+          )) ||
+          (field === 'model' && (
+            normH.includes('modelo') ||
+            normH.includes('veiculo') ||
+            normH.includes('carro')
+          )) ||
+          (field === 'year' && (
+            normH.includes('ano') ||
+            normH.includes('fab')
+          )) ||
+          (field === 'client_identifier' && (
+            normH.includes('proprietario') ||
+            normH.includes('dono') ||
+            normH.includes('cliente') ||
+            normH.includes('nome') ||
+            normH.includes('razao') ||
+            normH.includes('titular')
+          )) ||
+          (field === 'order_date' && (
+            normH.includes('data') ||
+            normH.includes('dt')
+          )) ||
+          (field === 'service_description' && (
+            normH.includes('servico') ||
+            normH.includes('desc') ||
+            normH.includes('item') ||
+            normH.includes('trabalho') ||
+            normH.includes('manutencao')
+          )) ||
+          (field === 'price' && (
+            normH.includes('valor') ||
+            normH.includes('preco') ||
+            normH.includes('total') ||
+            normH.includes('r$')
+          )) ||
+          (field === 'mileage' && (
+            normH.includes('km') ||
+            normH.includes('quilometragem') ||
+            normH.includes('horimetro')
+          )) ||
+          (field === 'notes' && (
+            normH.includes('obs') ||
+            normH.includes('notas') ||
+            normH.includes('observacao')
+          ))
         );
       });
       return { ...map, mappedIndex: matchIndex };
@@ -265,7 +340,7 @@ export default function ImportView() {
         const { data: existingClientsData } = await supabase.from('clients').select('*');
         const clientsMap = new Map<string, any>();
         (existingClientsData || []).forEach((c: Client) => {
-          if (c.name) clientsMap.set(c.name.toLowerCase().trim(), c);
+          if (c.name) clientsMap.set(normalizeKey(c.name), c);
           if (c.phone) clientsMap.set(c.phone.trim(), c);
         });
 
@@ -282,8 +357,9 @@ export default function ImportView() {
           const phone = getMappedValue(row, 'phone')?.trim() || null;
           const notes = getMappedValue(row, 'notes')?.trim() || null;
 
-          const nameKey = trimmedName.toLowerCase();
-          const existingClient = clientsMap.get(nameKey) || (phone ? clientsMap.get(phone) : null);
+          const normName = normalizeKey(trimmedName);
+          const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+          const existingClient = clientsMap.get(normName) || (cleanPhone ? clientsMap.get(cleanPhone) : null);
 
           const clientPayload = {
             name: trimmedName,
@@ -299,7 +375,7 @@ export default function ImportView() {
                 .eq('id', existingClient.id);
               if (error) throw error;
               const updatedClient = { ...existingClient, ...clientPayload };
-              clientsMap.set(nameKey, updatedClient);
+              clientsMap.set(normName, updatedClient);
               if (phone) clientsMap.set(phone, updatedClient);
               successCount++;
             } else {
@@ -310,7 +386,7 @@ export default function ImportView() {
                 .single();
               if (error) throw error;
               const createdClient = newC || { id: 'c_' + Math.random().toString(36).substring(2, 9), ...clientPayload };
-              clientsMap.set(nameKey, createdClient);
+              clientsMap.set(normName, createdClient);
               if (phone) clientsMap.set(phone, createdClient);
               successCount++;
             }
@@ -335,12 +411,10 @@ export default function ImportView() {
 
         // Pre-fetch clients to link vehicles
         const { data: existingClients } = await supabase.from('clients').select('*');
-        const clientsMap = new Map<string, string>(); // Name/Phone -> ID
+        const clientsMap = new Map<string, string>(); // Normalized Name/Phone -> ID
         (existingClients || []).forEach((c: Client) => {
-          clientsMap.set(c.name.toLowerCase().trim(), c.id);
-          if (c.phone) {
-            clientsMap.set(c.phone.trim(), c.id);
-          }
+          if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
+          if (c.phone) clientsMap.set(c.phone.trim(), c.id);
         });
 
         for (let i = 0; i < rows.length; i++) {
@@ -364,45 +438,49 @@ export default function ImportView() {
 
           // Resolve or create client
           let clientId = '';
-          const clientKey = clientIdent ? clientIdent.toLowerCase().trim() : '';
+          if (clientIdent && clientIdent.trim()) {
+            const rawIdent = clientIdent.trim();
+            const normIdent = normalizeKey(rawIdent);
 
-          if (clientKey && clientsMap.has(clientKey)) {
-            clientId = clientsMap.get(clientKey)!;
-          } else if (clientKey) {
-            // Create a new client on the fly!
-            try {
-              const newClientPayload = {
-                name: clientIdent.trim(),
-                phone: null,
-                notes: 'Cadastrado automaticamente via importador de veículos.',
-              };
-              const { data: newClient, error: clientErr } = await supabase
-                .from('clients')
-                .insert(newClientPayload)
-                .select()
-                .single();
+            if (clientsMap.has(normIdent)) {
+              clientId = clientsMap.get(normIdent)!;
+            } else {
+              // Create a new client on the fly!
+              try {
+                const newClientPayload = {
+                  name: rawIdent,
+                  phone: null,
+                  notes: 'Cadastrado automaticamente via importador de veículos.',
+                };
+                const { data: newClient, error: clientErr } = await supabase
+                  .from('clients')
+                  .insert(newClientPayload)
+                  .select()
+                  .single();
 
-              if (clientErr) throw clientErr;
+                if (clientErr) throw clientErr;
 
-              if (newClient) {
-                clientId = newClient.id;
-                clientsMap.set(clientKey, clientId);
-              } else {
-                const { data: allClients } = await supabase.from('clients').select('*');
-                const matched = (allClients || []).find((c: Client) => c.name === newClientPayload.name);
-                if (matched) {
-                  clientId = matched.id;
-                  clientsMap.set(clientKey, clientId);
+                if (newClient && newClient.id) {
+                  clientId = newClient.id;
                 } else {
-                  throw new Error('Falha ao obter ID do novo cliente');
+                  const { data: allClients } = await supabase.from('clients').select('*');
+                  const matched = (allClients || []).find((c: Client) => normalizeKey(c.name) === normIdent);
+                  if (matched) {
+                    clientId = matched.id;
+                  } else {
+                    clientId = 'c_' + Math.random().toString(36).substring(2, 9);
+                  }
                 }
-              }
-            } catch (err) {
-              const defaultKey = 'cliente importado';
-              if (clientsMap.has(defaultKey)) {
-                clientId = clientsMap.get(defaultKey)!;
-              } else if (existingClients && existingClients.length > 0) {
-                clientId = existingClients[0].id;
+
+                clientsMap.set(normIdent, clientId);
+              } catch (err) {
+                console.error('Erro ao criar cliente para veículo:', err);
+                const defaultKey = 'cliente importado';
+                if (clientsMap.has(defaultKey)) {
+                  clientId = clientsMap.get(defaultKey)!;
+                } else if (existingClients && existingClients.length > 0) {
+                  clientId = existingClients[0].id;
+                }
               }
             }
           } else {
@@ -421,7 +499,7 @@ export default function ImportView() {
                   .select('id')
                   .single();
 
-                if (defaultClient) {
+                if (defaultClient && defaultClient.id) {
                   clientId = defaultClient.id;
                   clientsMap.set(defaultKey, clientId);
                 } else if (existingClients && existingClients.length > 0) {
