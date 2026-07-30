@@ -708,6 +708,7 @@ export default function ImportView() {
               <button
                 onClick={() => {
                   setImportType('clients');
+                  setMappings(getInitialMappings('clients'));
                   setStep(2);
                 }}
                 className="group relative bg-slate-50 hover:bg-sky-50/50 border border-slate-100 hover:border-sky-200 rounded-2xl p-6 text-left transition-all cursor-pointer shadow-sm hover:shadow-md"
@@ -725,6 +726,7 @@ export default function ImportView() {
               <button
                 onClick={() => {
                   setImportType('vehicles');
+                  setMappings(getInitialMappings('vehicles'));
                   setStep(2);
                 }}
                 className="group relative bg-slate-50 hover:bg-emerald-50/50 border border-slate-100 hover:border-emerald-200 rounded-2xl p-6 text-left transition-all cursor-pointer shadow-sm hover:shadow-md"
@@ -742,6 +744,7 @@ export default function ImportView() {
               <button
                 onClick={() => {
                   setImportType('orders');
+                  setMappings(getInitialMappings('orders'));
                   setStep(2);
                 }}
                 className="group relative bg-slate-50 hover:bg-amber-50/50 border border-slate-100 hover:border-amber-200 rounded-2xl p-6 text-left transition-all cursor-pointer shadow-sm hover:shadow-md"

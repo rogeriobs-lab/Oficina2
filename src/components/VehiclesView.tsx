@@ -81,14 +81,6 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
       setFormError('Informe a placa do veículo');
       return;
     }
-    if (!formBrand.trim()) {
-      setFormError('Informe a marca');
-      return;
-    }
-    if (!formModel.trim()) {
-      setFormError('Informe o modelo');
-      return;
-    }
     if (!formClientId) {
       setFormError('Selecione o proprietário');
       return;
@@ -98,8 +90,8 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
     try {
       const payload = {
         plate: formPlate.trim().toUpperCase(),
-        brand: formBrand.trim(),
-        model: formModel.trim(),
+        brand: formBrand.trim() || 'Não informada',
+        model: formModel.trim() || 'Não informado',
         year: formYear ? parseInt(formYear, 10) : null,
         client_id: formClientId,
         notes: formNotes.trim() || null,
