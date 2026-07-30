@@ -7,6 +7,7 @@ import {
   importDataBackup,
   syncLocalToSupabase,
   generateQuickConnectUrl,
+  clearAllDatabaseData,
 } from '../lib/supabase';
 import {
   Database,
@@ -44,6 +45,22 @@ export default function SettingsView() {
   const [exportingSql, setExportingSql] = useState(false);
   const [syncingCloud, setSyncingCloud] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const [clearing, setClearing] = useState(false);
+
+  const handleClearAllData = async () => {
+    if (confirm('ATENÇÃO: Você tem certeza que deseja APAGAR TODOS os clientes, veículos e serviços/ordens cadastrados no sistema? Esta ação não poderá ser desfeita.')) {
+      setClearing(true);
+      const res = await clearAllDatabaseData();
+      setClearing(false);
+      if (res.success) {
+        setImportStatus(res.message);
+        setErrorStatus(null);
+      } else {
+        setErrorStatus(res.message);
+      }
+    }
+  };
 
   const handleCopyQuickLink = () => {
     const quickLink = generateQuickConnectUrl();
@@ -506,6 +523,30 @@ export default function SettingsView() {
                 className="hidden"
               />
             </label>
+          </div>
+        </div>
+
+        {/* Danger Zone: Clear All Data */}
+        <div className="pt-4 border-t border-slate-100">
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500 text-white shrink-0 shadow-xs">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-rose-950">Zerar Banco de Dados</h4>
+                <p className="text-xs text-rose-700 mt-0.5">Apaga permanentemente todos os clientes, veículos e ordens de serviço salvos.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleClearAllData}
+              disabled={clearing}
+              className="w-full sm:w-auto px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs shrink-0 disabled:opacity-50"
+            >
+              {clearing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              <span>{clearing ? 'Apagando...' : 'Zerar Banco de Dados'}</span>
+            </button>
           </div>
         </div>
       </div>

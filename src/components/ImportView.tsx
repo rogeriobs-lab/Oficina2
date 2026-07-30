@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase, type Client, type Vehicle } from '../lib/supabase';
+import { supabase, clearAllDatabaseData, type Client, type Vehicle } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import {
   Upload,
@@ -16,6 +16,8 @@ import {
   HelpCircle,
   RefreshCw,
   ClipboardList,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 type ImportType = 'clients' | 'vehicles' | 'orders';
@@ -40,6 +42,22 @@ export default function ImportView() {
     failedCount: number;
     errors: string[];
   } | null>(null);
+
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
+
+  const handleClearDatabase = async () => {
+    setClearing(true);
+    const result = await clearAllDatabaseData();
+    setClearing(false);
+    setShowClearModal(false);
+    if (result.success) {
+      setClearNotice('Todos os dados de clientes, veículos e serviços foram apagados do banco.');
+    } else {
+      setClearNotice(`Falha ao apagar: ${result.message}`);
+    }
+  };
 
   // Initial column definitions for mapping
   const getInitialMappings = (type: ImportType): ColumnMapping[] => {
@@ -811,6 +829,21 @@ export default function ImportView() {
       <div className="bg-white border border-gray-100 rounded-2xl p-6 md:p-8 shadow-sm">
         {step === 1 && (
           <div className="space-y-8 animate-fade-in">
+            {clearNotice && (
+              <div className="max-w-4xl mx-auto p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-amber-900 text-sm font-medium">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                  <span>{clearNotice}</span>
+                </div>
+                <button
+                  onClick={() => setClearNotice(null)}
+                  className="p-1 hover:bg-amber-100 rounded-lg text-amber-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             <div className="text-center max-w-xl mx-auto space-y-2">
               <Database className="w-12 h-12 text-sky-500 mx-auto" />
               <h2 className="text-xl font-extrabold text-slate-800">O que você gostaria de importar hoje?</h2>
@@ -872,6 +905,76 @@ export default function ImportView() {
                 </div>
               </button>
             </div>
+
+            {/* Clear Database Card / Option */}
+            <div className="max-w-4xl mx-auto pt-4 border-t border-slate-100">
+              <div className="bg-rose-50/60 border border-rose-100 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-rose-950">Apagar Dados para Nova Importação</h4>
+                    <p className="text-xs text-rose-700/80 mt-0.5">Deseja zerar os cadastros de clientes, veículos e serviços antes de reimportar?</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowClearModal(true)}
+                  className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow flex items-center justify-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Apagar Todos os Dados</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Confirmation Modal */}
+            {showClearModal && (
+              <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 animate-scale-in space-y-5">
+                  <div className="flex items-center gap-3 text-rose-600">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900">Confirmar exclusão de dados</h3>
+                      <p className="text-xs text-slate-500">Ação irreversível</p>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    Você tem certeza que deseja <strong>apagar permanentemente todos os clientes, veículos e serviços/O.S.</strong> salvos no sistema?
+                  </p>
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      onClick={() => setShowClearModal(false)}
+                      disabled={clearing}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleClearDatabase}
+                      disabled={clearing}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-2"
+                    >
+                      {clearing ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Apagando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4" />
+                          <span>Sim, Apagar Tudo</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

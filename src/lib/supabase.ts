@@ -769,3 +769,32 @@ if (isRealSupabaseConfigured) {
 }
 
 export const supabase = realClient || (mockSupabase as any);
+
+export const clearAllDatabaseData = async (): Promise<{ success: boolean; message: string }> => {
+  try {
+    if (isRealSupabaseConfigured) {
+      // In real Supabase, delete records in order to respect foreign keys
+      await supabase.from('order_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('service_orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('vehicles').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('clients').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
+
+    // Always clear local storage mock store keys
+    localStorage.removeItem('oficinapro_order_items');
+    localStorage.removeItem('oficinapro_service_orders');
+    localStorage.removeItem('oficinapro_vehicles');
+    localStorage.removeItem('oficinapro_clients');
+
+    return {
+      success: true,
+      message: 'Todos os registros de clientes, veículos e serviços/O.S. foram excluídos com sucesso.',
+    };
+  } catch (err) {
+    console.error('Erro ao apagar dados do banco:', err);
+    return {
+      success: false,
+      message: `Erro ao apagar dados: ${err instanceof Error ? err.message : 'Erro desconhecido'}`,
+    };
+  }
+};
