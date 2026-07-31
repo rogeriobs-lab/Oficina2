@@ -77,7 +77,7 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
         getCount('service_orders', 'aberta'),
         supabase
           .from('service_orders')
-          .select('id, order_date, status, clients(name), vehicles(plate, brand, model), order_items(price)')
+          .select('id, order_date, status, client_id, vehicle_id, clients(name), vehicles(plate, brand, model)')
           .order('order_date', { ascending: false })
           .limit(10),
       ]);
@@ -89,19 +89,41 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
         openOrders: openCount,
       });
 
-      if (recentOrdersRes.error) {
-        console.warn('Erro ao buscar ordens recentes:', recentOrdersRes.error);
-        // Fallback: try fetching simple orders without nested joins if join timed out
+      let rawRecent: any[] = recentOrdersRes.data ?? [];
+
+      if (recentOrdersRes.error || rawRecent.length === 0) {
+        if (recentOrdersRes.error) console.warn('Erro ao buscar ordens recentes com joins:', recentOrdersRes.error);
         const simpleRes = await supabase
           .from('service_orders')
-          .select('id, order_date, status')
+          .select('id, order_date, status, client_id, vehicle_id')
           .order('order_date', { ascending: false })
           .limit(10);
         if (!simpleRes.error && simpleRes.data) {
-          setRecentOrders(simpleRes.data as unknown as RecentOrder[]);
+          rawRecent = simpleRes.data;
         }
+      }
+
+      if (rawRecent.length > 0) {
+        const orderIds = rawRecent.map((o: any) => o.id);
+        const { data: itemsData } = await supabase
+          .from('order_items')
+          .select('order_id, price')
+          .in('order_id', orderIds);
+
+        const itemsMap = new Map<string, { price: number }[]>();
+        (itemsData || []).forEach((item: any) => {
+          if (!itemsMap.has(item.order_id)) itemsMap.set(item.order_id, []);
+          itemsMap.get(item.order_id)!.push({ price: Number(item.price) || 0 });
+        });
+
+        const formattedRecent = rawRecent.map((o: any) => ({
+          ...o,
+          order_items: itemsMap.get(o.id) || [],
+        }));
+
+        setRecentOrders(formattedRecent as unknown as RecentOrder[]);
       } else {
-        setRecentOrders((recentOrdersRes.data ?? []) as unknown as RecentOrder[]);
+        setRecentOrders([]);
       }
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao consultar o banco de dados Supabase');

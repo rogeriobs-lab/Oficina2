@@ -27,7 +27,7 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
   const [statusFilter, setStatusFilter] = useState<'todas' | 'aberta' | 'fechada'>('todas');
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const pageSize = 100;
+  const pageSize = 50;
 
   const loadOrders = useCallback(async () => {
     try {
@@ -37,29 +37,94 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
       const from = (page - 1) * pageSize;
       const to = page * pageSize - 1;
 
+      let rawData: any[] = [];
+      let totalResCount = 0;
+
+      // Try joined query first (without order_items 1-to-many aggregate)
       let query = supabase
         .from('service_orders')
-        .select('id, order_date, mileage, status, clients(name), vehicles(plate, brand, model, year), order_items(price)', { count: 'estimated' })
+        .select('id, order_date, mileage, status, client_id, vehicle_id, clients(name), vehicles(plate, brand, model, year)', { count: 'estimated' })
         .order('order_date', { ascending: false });
 
       if (statusFilter !== 'todas') {
         query = query.eq('status', statusFilter);
       }
 
-      const { data, error, count } = await query.range(from, to);
+      const { data, error: primaryErr, count } = await query.range(from, to);
 
-      if (error) throw error;
-
-      setOrders((data ?? []) as unknown as OrderRow[]);
-
-      if (count && count > 0) {
-        setTotalCount(count);
+      if (!primaryErr && data) {
+        rawData = data;
+        totalResCount = count ?? 0;
       } else {
-        // Fallback simple count query without joins
+        console.warn('Primary query failed/timed out, using simplified fallback query:', primaryErr);
+        // Fallback: simple query without joins to ensure fast execution
+        let fallbackQ = supabase
+          .from('service_orders')
+          .select('id, order_date, mileage, status, client_id, vehicle_id', { count: 'estimated' })
+          .order('order_date', { ascending: false });
+
+        if (statusFilter !== 'todas') {
+          fallbackQ = fallbackQ.eq('status', statusFilter);
+        }
+
+        const { data: fbData, error: fbErr, count: fbCount } = await fallbackQ.range(from, to);
+        if (fbErr) throw fbErr;
+        rawData = fbData ?? [];
+        totalResCount = fbCount ?? 0;
+
+        // Fetch clients and vehicles manually for fallback
+        if (rawData.length > 0) {
+          const clientIds = Array.from(new Set(rawData.map((r: any) => r.client_id).filter(Boolean)));
+          const vehicleIds = Array.from(new Set(rawData.map((r: any) => r.vehicle_id).filter(Boolean)));
+
+          const [cRes, vRes] = await Promise.all([
+            clientIds.length > 0 ? supabase.from('clients').select('id, name').in('id', clientIds) : { data: [] },
+            vehicleIds.length > 0 ? supabase.from('vehicles').select('id, plate, brand, model, year').in('id', vehicleIds) : { data: [] },
+          ]);
+
+          const clientMap = new Map((cRes.data || []).map((c: any) => [c.id, c]));
+          const vehicleMap = new Map((vRes.data || []).map((v: any) => [v.id, v]));
+
+          rawData = rawData.map((r: any) => ({
+            ...r,
+            clients: clientMap.get(r.client_id) || { name: 'Não informado' },
+            vehicles: vehicleMap.get(r.vehicle_id) || { plate: 'Sem placa', brand: '', model: '', year: null },
+          }));
+        }
+      }
+
+      // Now fetch prices for the loaded orders
+      const orderIds = rawData.map((o: any) => o.id);
+      const itemsMap = new Map<string, { price: number }[]>();
+
+      if (orderIds.length > 0) {
+        const { data: itemsData } = await supabase
+          .from('order_items')
+          .select('order_id, price')
+          .in('order_id', orderIds);
+
+        if (itemsData) {
+          itemsData.forEach((item: any) => {
+            if (!itemsMap.has(item.order_id)) itemsMap.set(item.order_id, []);
+            itemsMap.get(item.order_id)!.push({ price: Number(item.price) || 0 });
+          });
+        }
+      }
+
+      const formattedOrders: OrderRow[] = rawData.map((o: any) => ({
+        ...o,
+        order_items: itemsMap.get(o.id) || [],
+      }));
+
+      setOrders(formattedOrders);
+
+      if (totalResCount > 0) {
+        setTotalCount(totalResCount);
+      } else {
         let countQ = supabase.from('service_orders').select('id', { count: 'exact', head: true });
         if (statusFilter !== 'todas') countQ = countQ.eq('status', statusFilter);
         const { count: exactCount } = await countQ;
-        setTotalCount(exactCount ?? data?.length ?? 0);
+        setTotalCount(exactCount ?? formattedOrders.length);
       }
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar ordens de serviço');
