@@ -80,6 +80,7 @@ export default function ImportView() {
       return [
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
         { dbField: 'client_identifier', label: 'Proprietário / Cliente (Opcional)', required: false, mappedIndex: -1 },
+        { dbField: 'order_number', label: 'Nº / Código da O.S. (Opcional)', required: false, mappedIndex: -1 },
         { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
         { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: false, mappedIndex: -1 },
         { dbField: 'item_type', label: 'Ref / Tipo (PÇ = Peça, MO = Mão de Obra)', required: false, mappedIndex: -1 },
@@ -162,6 +163,16 @@ export default function ImportView() {
             normH.includes('nome') ||
             normH.includes('razao') ||
             normH.includes('titular')
+          )) ||
+          (field === 'order_number' && (
+            normH.includes('os') ||
+            normH.includes('ordem') ||
+            normH.includes('numero') ||
+            normH.includes('num') ||
+            normH.includes('codigo') ||
+            normH === 'nº' ||
+            normH === 'no' ||
+            normH === 'id'
           )) ||
           (field === 'order_date' && (
             normH.includes('data') ||
@@ -604,15 +615,36 @@ export default function ImportView() {
           }
         });
 
+        // Stage 1: Group spreadsheet rows into unified Service Orders (by OS Number or Plate + Date)
+        type ServiceItemRow = {
+          serviceDesc: string;
+          itemTypeRaw: string;
+          price: number;
+        };
+
+        type OSGroup = {
+          plateClean: string;
+          clientIdentRaw: string;
+          orderNumberRaw: string;
+          orderDate: string;
+          mileage: number | null;
+          status: string;
+          items: ServiceItemRow[];
+        };
+
+        const osGroupsMap = new Map<string, OSGroup>();
+
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
           const plateRaw = getMappedValue(row, 'plate');
           const clientIdentRaw = getMappedValue(row, 'client_identifier');
+          const orderNumberRaw = getMappedValue(row, 'order_number');
           const dateRaw = getMappedValue(row, 'order_date');
           const serviceDesc = getMappedValue(row, 'service_description');
           const priceRaw = getMappedValue(row, 'price');
           const mileageRaw = getMappedValue(row, 'mileage');
           const statusRaw = getMappedValue(row, 'status');
+          const itemTypeRaw = getMappedValue(row, 'item_type');
 
           if (!plateRaw || !plateRaw.trim()) {
             failedCount++;
@@ -621,97 +653,6 @@ export default function ImportView() {
           }
 
           const plateClean = plateRaw.trim().toUpperCase();
-          const plateAlpha = plateClean.replace(/[^A-Z0-9]/g, '');
-
-          // Try to resolve client if specified in O.S. row
-          let rowClientId = '';
-          if (clientIdentRaw && clientIdentRaw.trim()) {
-            const rawIdent = clientIdentRaw.trim();
-            const normIdent = normalizeKey(rawIdent);
-            const cleanIdentPhone = rawIdent.replace(/\D/g, '');
-
-            if (clientsMap.has(normIdent)) {
-              rowClientId = clientsMap.get(normIdent)!;
-            } else if (cleanIdentPhone && clientsMap.has(cleanIdentPhone)) {
-              rowClientId = clientsMap.get(cleanIdentPhone)!;
-            } else {
-              // Create client for this specific name/phone
-              try {
-                const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
-                const newClientPayload = {
-                  name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
-                  phone: isPhoneLike ? rawIdent : null,
-                  notes: 'Cadastrado automaticamente via importador de O.S.',
-                };
-                const { data: newC } = await supabase.from('clients').insert(newClientPayload).select('id').single();
-                if (newC?.id) {
-                  rowClientId = newC.id;
-                  clientsMap.set(normIdent, rowClientId);
-                  if (cleanIdentPhone) clientsMap.set(cleanIdentPhone, rowClientId);
-                }
-              } catch (cErr) {
-                console.warn('Erro ao criar cliente para O.S.:', cErr);
-              }
-            }
-          }
-
-          let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
-
-          // If not found in local map, check database directly (handles DB with >1000 vehicles)
-          if (!vehicleInfo) {
-            const plateCond = plateAlpha && plateAlpha !== plateClean
-              ? `plate.eq.${plateClean},plate.eq.${plateAlpha}`
-              : `plate.eq.${plateClean}`;
-            const { data: dbV } = await supabase.from('vehicles').select('id, client_id, plate').or(plateCond).limit(1);
-            if (dbV && dbV.length > 0) {
-              vehicleInfo = { id: dbV[0].id, client_id: dbV[0].client_id };
-              vehiclesMap.set(plateClean, vehicleInfo);
-              if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
-            }
-          }
-
-          if (!vehicleInfo) {
-            try {
-              let targetClientId = rowClientId;
-              if (!targetClientId) {
-                // Create a specific client for this plate instead of using Reginaldo
-                const { data: newC } = await supabase
-                  .from('clients')
-                  .insert({
-                    name: `Cliente Placa ${plateClean}`,
-                    notes: 'Cadastrado automaticamente durante a importação de O.S.',
-                  })
-                  .select('id')
-                  .single();
-                if (newC) targetClientId = newC.id;
-              }
-
-              const { data: newV, error: vErr } = await supabase
-                .from('vehicles')
-                .insert({
-                  plate: plateClean,
-                  brand: 'Veículo',
-                  model: 'Importado',
-                  client_id: targetClientId || null,
-                  notes: 'Cadastrado automaticamente via importador de O.S.',
-                })
-                .select('id, client_id')
-                .single();
-
-              if (vErr) throw vErr;
-              if (newV && newV.id) {
-                vehicleInfo = { id: newV.id, client_id: newV.client_id };
-                vehiclesMap.set(plateClean, vehicleInfo);
-                if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
-              } else {
-                throw new Error('Falha ao registrar novo veículo');
-              }
-            } catch (vErr) {
-              failedCount++;
-              errors.push(`Linha ${i + 2} (Placa ${plateClean}): Não foi possível localizar ou cadastrar o veículo.`);
-              continue;
-            }
-          }
 
           let orderDate = new Date().toISOString().split('T')[0];
           if (dateRaw && dateRaw.trim()) {
@@ -750,15 +691,143 @@ export default function ImportView() {
             }
           }
 
+          const orderNumClean = orderNumberRaw ? orderNumberRaw.trim() : '';
+
+          // Key by OS Number if available, else by Plate + Date
+          const groupKey = orderNumClean
+            ? `OS_${plateClean}_${orderNumClean}`
+            : `DATE_${plateClean}_${orderDate}`;
+
+          if (!osGroupsMap.has(groupKey)) {
+            osGroupsMap.set(groupKey, {
+              plateClean,
+              clientIdentRaw: clientIdentRaw?.trim() || '',
+              orderNumberRaw: orderNumClean,
+              orderDate,
+              mileage,
+              status,
+              items: [{ serviceDesc: serviceDesc || '', itemTypeRaw: itemTypeRaw || '', price }],
+            });
+          } else {
+            const group = osGroupsMap.get(groupKey)!;
+            group.items.push({ serviceDesc: serviceDesc || '', itemTypeRaw: itemTypeRaw || '', price });
+            if (!group.clientIdentRaw && clientIdentRaw?.trim()) {
+              group.clientIdentRaw = clientIdentRaw.trim();
+            }
+            if (group.mileage === null && mileage !== null) {
+              group.mileage = mileage;
+            }
+            if (status === 'aberta') {
+              group.status = 'aberta';
+            }
+          }
+        }
+
+        // Stage 2: Process each OS Group and insert into Supabase
+        const osGroups = Array.from(osGroupsMap.values());
+
+        for (let gIndex = 0; gIndex < osGroups.length; gIndex++) {
+          const group = osGroups[gIndex];
+          const plateClean = group.plateClean;
+          const plateAlpha = plateClean.replace(/[^A-Z0-9]/g, '');
+
+          // Try to resolve client if specified
+          let rowClientId = '';
+          if (group.clientIdentRaw) {
+            const rawIdent = group.clientIdentRaw;
+            const normIdent = normalizeKey(rawIdent);
+            const cleanIdentPhone = rawIdent.replace(/\D/g, '');
+
+            if (clientsMap.has(normIdent)) {
+              rowClientId = clientsMap.get(normIdent)!;
+            } else if (cleanIdentPhone && clientsMap.has(cleanIdentPhone)) {
+              rowClientId = clientsMap.get(cleanIdentPhone)!;
+            } else {
+              try {
+                const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
+                const newClientPayload = {
+                  name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
+                  phone: isPhoneLike ? rawIdent : null,
+                  notes: 'Cadastrado automaticamente via importador de O.S.',
+                };
+                const { data: newC } = await supabase.from('clients').insert(newClientPayload).select('id').single();
+                if (newC?.id) {
+                  rowClientId = newC.id;
+                  clientsMap.set(normIdent, rowClientId);
+                  if (cleanIdentPhone) clientsMap.set(cleanIdentPhone, rowClientId);
+                }
+              } catch (cErr) {
+                console.warn('Erro ao criar cliente para O.S.:', cErr);
+              }
+            }
+          }
+
+          let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
+
+          if (!vehicleInfo) {
+            const plateCond = plateAlpha && plateAlpha !== plateClean
+              ? `plate.eq.${plateClean},plate.eq.${plateAlpha}`
+              : `plate.eq.${plateClean}`;
+            const { data: dbV } = await supabase.from('vehicles').select('id, client_id, plate').or(plateCond).limit(1);
+            if (dbV && dbV.length > 0) {
+              vehicleInfo = { id: dbV[0].id, client_id: dbV[0].client_id };
+              vehiclesMap.set(plateClean, vehicleInfo);
+              if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
+            }
+          }
+
+          if (!vehicleInfo) {
+            try {
+              let targetClientId = rowClientId;
+              if (!targetClientId) {
+                const { data: newC } = await supabase
+                  .from('clients')
+                  .insert({
+                    name: `Cliente Placa ${plateClean}`,
+                    notes: 'Cadastrado automaticamente durante a importação de O.S.',
+                  })
+                  .select('id')
+                  .single();
+                if (newC) targetClientId = newC.id;
+              }
+
+              const { data: newV, error: vErr } = await supabase
+                .from('vehicles')
+                .insert({
+                  plate: plateClean,
+                  brand: 'Veículo',
+                  model: 'Importado',
+                  client_id: targetClientId || null,
+                  notes: 'Cadastrado automaticamente via importador de O.S.',
+                })
+                .select('id, client_id')
+                .single();
+
+              if (vErr) throw vErr;
+              if (newV && newV.id) {
+                vehicleInfo = { id: newV.id, client_id: newV.client_id };
+                vehiclesMap.set(plateClean, vehicleInfo);
+                if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
+              } else {
+                throw new Error('Falha ao registrar novo veículo');
+              }
+            } catch (vErr) {
+              failedCount++;
+              errors.push(`O.S. Placa ${plateClean} (${group.orderDate}): Não foi possível localizar ou cadastrar o veículo.`);
+              continue;
+            }
+          }
+
           try {
             const { data: newOrder, error: orderErr } = await supabase
               .from('service_orders')
               .insert({
                 vehicle_id: vehicleInfo.id,
                 client_id: vehicleInfo.client_id,
-                order_date: orderDate,
-                mileage,
-                status,
+                order_date: group.orderDate,
+                mileage: group.mileage,
+                status: group.status,
+                notes: group.orderNumberRaw ? `O.S. nº ${group.orderNumberRaw}` : undefined,
               })
               .select('id')
               .single();
@@ -766,44 +835,38 @@ export default function ImportView() {
             if (orderErr) throw orderErr;
 
             if (newOrder && newOrder.id) {
-              // Determine item type based on Ref field:
-              // PÇ / PC / PECA -> 'peca'
-              // MO / SERVIÇO / em branco -> 'servico'
-              const itemTypeRaw = getMappedValue(row, 'item_type');
-              let itemType: 'servico' | 'peca' = 'servico';
-
-              if (itemTypeRaw && itemTypeRaw.trim()) {
-                const normRef = normalizeKey(itemTypeRaw);
-                if (
-                  normRef.includes('pc') ||
-                  normRef.includes('peca') ||
-                  normRef.includes('part') ||
-                  normRef.includes('produto') ||
-                  normRef === 'p'
-                ) {
-                  itemType = 'peca';
-                } else {
-                  // MO, Mão de obra, Serviço, etc.
-                  itemType = 'servico';
+              const itemsToInsert = group.items.map((item) => {
+                let itemType: 'servico' | 'peca' = 'servico';
+                if (item.itemTypeRaw && item.itemTypeRaw.trim()) {
+                  const normRef = normalizeKey(item.itemTypeRaw);
+                  if (
+                    normRef.includes('pc') ||
+                    normRef.includes('peca') ||
+                    normRef.includes('part') ||
+                    normRef.includes('produto') ||
+                    normRef === 'p'
+                  ) {
+                    itemType = 'peca';
+                  }
                 }
-              } else {
-                // If Ref field is blank or omitted, default to 'servico' (MO)
-                itemType = 'servico';
-              }
-
-              const { error: itemErr } = await supabase.from('order_items').insert({
-                order_id: newOrder.id,
-                item_type: itemType,
-                description: (serviceDesc && serviceDesc.trim()) ? serviceDesc.trim() : (itemType === 'peca' ? 'Peça' : 'Serviço'),
-                price,
+                return {
+                  order_id: newOrder.id,
+                  item_type: itemType,
+                  description: (item.serviceDesc && item.serviceDesc.trim())
+                    ? item.serviceDesc.trim()
+                    : (itemType === 'peca' ? 'Peça' : 'Serviço'),
+                  price: item.price,
+                };
               });
+
+              const { error: itemErr } = await supabase.from('order_items').insert(itemsToInsert);
               if (itemErr) throw itemErr;
             }
 
             successCount++;
           } catch (err) {
             failedCount++;
-            errors.push(`Erro ao importar O.S. para "${plateClean}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+            errors.push(`Erro ao importar O.S. para "${plateClean}" (${group.orderDate}): ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
           }
         }
       }
