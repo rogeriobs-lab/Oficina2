@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/src/lib/supabase';
 import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
 import { computeOrderNumbers } from '@/src/lib/orderUtils';

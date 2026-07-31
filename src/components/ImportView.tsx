@@ -19,9 +19,10 @@ import {
   Trash2,
   X,
   Layers,
+  Zap,
 } from 'lucide-react';
 
-type ImportType = 'clients' | 'vehicles' | 'orders';
+type ImportType = 'master' | 'clients' | 'vehicles' | 'orders';
 
 interface ColumnMapping {
   dbField: string;
@@ -141,7 +142,22 @@ export default function ImportView() {
 
   // Initial column definitions for mapping
   const getInitialMappings = (type: ImportType): ColumnMapping[] => {
-    if (type === 'clients') {
+    if (type === 'master') {
+      return [
+        { dbField: 'client_name', label: 'Nome do Cliente / Proprietário', required: true, mappedIndex: -1 },
+        { dbField: 'client_phone', label: 'Telefone / WhatsApp', required: false, mappedIndex: -1 },
+        { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
+        { dbField: 'brand', label: 'Marca (ex: Toyota)', required: false, mappedIndex: -1 },
+        { dbField: 'model', label: 'Modelo (ex: Corolla)', required: false, mappedIndex: -1 },
+        { dbField: 'order_number', label: 'Nº / Código da O.S. (Opcional)', required: false, mappedIndex: -1 },
+        { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
+        { dbField: 'service_description', label: 'Descrição do Serviço / Peça', required: false, mappedIndex: -1 },
+        { dbField: 'item_type', label: 'Ref / Tipo (PÇ = Peça, MO = Mão de Obra)', required: false, mappedIndex: -1 },
+        { dbField: 'price', label: 'Valor (R$)', required: false, mappedIndex: -1 },
+        { dbField: 'mileage', label: 'Quilometragem (Km)', required: false, mappedIndex: -1 },
+        { dbField: 'status', label: 'Status (Aberta/Fechada)', required: false, mappedIndex: -1 },
+      ];
+    } else if (type === 'clients') {
       return [
         { dbField: 'name', label: 'Nome do Cliente', required: true, mappedIndex: -1 },
         { dbField: 'phone', label: 'Telefone / WhatsApp', required: false, mappedIndex: -1 },
@@ -196,7 +212,7 @@ export default function ImportView() {
           h.includes(field) ||
           h === label ||
           h.includes(label) ||
-          (field === 'name' && (
+          ((field === 'name' || field === 'client_name') && (
             normH.includes('nome') ||
             normH.includes('cliente') ||
             normH.includes('proprietario') ||
@@ -207,7 +223,7 @@ export default function ImportView() {
             normH.includes('titular') ||
             normH.includes('comprador')
           )) ||
-          (field === 'phone' && (
+          ((field === 'phone' || field === 'client_phone') && (
             normH.includes('tel') ||
             normH.includes('cel') ||
             normH.includes('fone') ||
@@ -451,20 +467,39 @@ export default function ImportView() {
     const errors: string[] = [];
 
     try {
-      // Find indexes
       const getMappedValue = (row: string[], fieldName: string) => {
         const mapping = mappings.find((m) => m.dbField === fieldName);
         if (!mapping || mapping.mappedIndex === -1) return null;
         return row[mapping.mappedIndex] || null;
       };
 
+      // 1. Common Pre-fetch for Client & Vehicle Lookup
+      const { data: existingClientsData } = await supabase.from('clients').select('id, name, phone');
+      const { data: existingVehiclesData } = await supabase.from('vehicles').select('id, plate, client_id');
+
+      const clientsMap = new Map<string, string>(); // normalized key -> client id
+      (existingClientsData || []).forEach((c: any) => {
+        if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
+        if (c.phone) {
+          clientsMap.set(c.phone.trim(), c.id);
+          const cleanP = c.phone.replace(/\D/g, '');
+          if (cleanP) clientsMap.set(cleanP, c.id);
+        }
+      });
+
+      const vehiclesMap = new Map<string, { id: string; client_id: string | null }>(); // clean plate -> vehicle info
+      (existingVehiclesData || []).forEach((v: any) => {
+        if (v.plate) {
+          const rawP = v.plate.toUpperCase().trim();
+          const cleanP = rawP.replace(/[^A-Z0-9]/g, '');
+          if (cleanP) vehiclesMap.set(cleanP, { id: v.id, client_id: v.client_id });
+          vehiclesMap.set(rawP, { id: v.id, client_id: v.client_id });
+        }
+      });
+
       if (importType === 'clients') {
-        const { data: existingClientsData } = await supabase.from('clients').select('*');
-        const clientsMap = new Map<string, any>();
-        (existingClientsData || []).forEach((c: Client) => {
-          if (c.name) clientsMap.set(normalizeKey(c.name), c);
-          if (c.phone) clientsMap.set(c.phone.trim(), c);
-        });
+        // High-Speed Bulk Import for Clients
+        const clientsToInsertMap = new Map<string, { name: string; phone: string | null; notes: string | null }>();
 
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
@@ -481,499 +516,361 @@ export default function ImportView() {
 
           const normName = normalizeKey(trimmedName);
           const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-          const existingClient = clientsMap.get(normName) || (cleanPhone ? clientsMap.get(cleanPhone) : null);
+          const existingId = clientsMap.get(normName) || (cleanPhone ? clientsMap.get(cleanPhone) : null);
 
-          const clientPayload = {
-            name: trimmedName,
-            phone: phone || existingClient?.phone || null,
-            notes: notes || existingClient?.notes || null,
-          };
+          if (existingId) {
+            successCount++;
+          } else if (!clientsToInsertMap.has(normName)) {
+            clientsToInsertMap.set(normName, { name: trimmedName, phone, notes });
+          } else {
+            successCount++;
+          }
+        }
 
-          try {
-            if (existingClient) {
-              const { error } = await supabase
-                .from('clients')
-                .update(clientPayload)
-                .eq('id', existingClient.id);
-              if (error) throw error;
-              const updatedClient = { ...existingClient, ...clientPayload };
-              clientsMap.set(normName, updatedClient);
-              if (phone) clientsMap.set(phone, updatedClient);
-              successCount++;
-            } else {
-              const { data: newC, error } = await supabase
-                .from('clients')
-                .insert(clientPayload)
-                .select()
-                .single();
-              if (error) throw error;
-              const createdClient = newC || { id: 'c_' + Math.random().toString(36).substring(2, 9), ...clientPayload };
-              clientsMap.set(normName, createdClient);
-              if (phone) clientsMap.set(phone, createdClient);
-              successCount++;
-            }
-          } catch (err) {
-            failedCount++;
-            errors.push(`Erro ao importar "${trimmedName}": ${formatErrorMessage(err)}`);
+        const newClientsList = Array.from(clientsToInsertMap.values());
+        for (let c = 0; c < newClientsList.length; c += 200) {
+          const chunk = newClientsList.slice(c, c + 200);
+          const { data: inserted, error: insertErr } = await supabase.from('clients').insert(chunk).select('id, name, phone');
+          if (insertErr) {
+            failedCount += chunk.length;
+            errors.push(`Erro ao salvar lote de clientes: ${formatErrorMessage(insertErr)}`);
+          } else {
+            successCount += inserted?.length || chunk.length;
           }
         }
       } else if (importType === 'vehicles') {
-        // Importing vehicles
-        // Pre-fetch existing vehicles to detect duplicates and update them instead of creating extra entries
-        const { data: existingVehiclesData } = await supabase.from('vehicles').select('*');
-        const vehiclesMap = new Map<string, any>(); // plate key -> vehicle
-        (existingVehiclesData || []).forEach((v: any) => {
-          if (v.plate) {
-            const rawPlate = v.plate.toUpperCase().trim();
-            const cleanPlate = rawPlate.replace(/[^A-Z0-9]/g, '');
-            vehiclesMap.set(rawPlate, v);
-            if (cleanPlate) vehiclesMap.set(cleanPlate, v);
-          }
-        });
-
-        // Pre-fetch clients to link vehicles
-        const { data: existingClients } = await supabase.from('clients').select('*');
-        const clientsMap = new Map<string, string>(); // Normalized Name/Phone/CleanPhone -> ID
-        (existingClients || []).forEach((c: Client) => {
-          if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
-          if (c.phone) {
-            clientsMap.set(c.phone.trim(), c.id);
-            const cleanP = c.phone.replace(/\D/g, '');
-            if (cleanP) clientsMap.set(cleanP, c.id);
-          }
-        });
+        // High-Speed Bulk Import for Vehicles
+        const newClientsMap = new Map<string, { name: string; phone: string | null; notes: string | null }>();
+        const vehicleRowsToProcess: Array<{ plateClean: string; rawPlate: string; brand: string; model: string; clientIdent: string; notes: string | null }> = [];
 
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
           const plate = getMappedValue(row, 'plate');
-          const brand = getMappedValue(row, 'brand');
-          const model = getMappedValue(row, 'model');
           const clientIdent = getMappedValue(row, 'client_identifier');
-
           if (!plate || !plate.trim()) {
             failedCount++;
-            errors.push(`Linha ${i + 2}: Placa do veículo é obrigatória e está em branco.`);
+            errors.push(`Linha ${i + 2}: Placa é obrigatória.`);
             continue;
           }
-
           if (!clientIdent || !clientIdent.trim()) {
             failedCount++;
-            errors.push(`Linha ${i + 2}: Proprietário (Nome ou Telefone do cliente) é obrigatório e está em branco.`);
+            errors.push(`Linha ${i + 2}: Proprietário é obrigatório.`);
             continue;
           }
 
-          const formattedPlate = plate.trim().toUpperCase();
-          const cleanPlate = formattedPlate.replace(/[^A-Z0-9]/g, '');
+          const rawPlate = plate.trim().toUpperCase();
+          const plateClean = rawPlate.replace(/[^A-Z0-9]/g, '');
+          const brand = getMappedValue(row, 'brand')?.trim() || 'Veículo';
+          const model = getMappedValue(row, 'model')?.trim() || 'Importado';
+          const notes = getMappedValue(row, 'notes')?.trim() || null;
 
-          // Check if vehicle already exists in DB or was processed earlier in this import
-          const existingVehicle = vehiclesMap.get(cleanPlate) || vehiclesMap.get(formattedPlate);
-
-          // Resolve or create client
-          let clientId = '';
           const rawIdent = clientIdent.trim();
           const normIdent = normalizeKey(rawIdent);
           const cleanIdentPhone = rawIdent.replace(/\D/g, '');
 
-          if (clientsMap.has(normIdent)) {
-            clientId = clientsMap.get(normIdent)!;
-          } else if (cleanIdentPhone && clientsMap.has(cleanIdentPhone)) {
-            clientId = clientsMap.get(cleanIdentPhone)!;
-          } else {
-            // Create a new client on the fly!
-            try {
-              const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
-              const newClientPayload = {
-                name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
-                phone: isPhoneLike ? rawIdent : null,
-                notes: 'Cadastrado automaticamente via importador de veículos.',
-              };
-              const { data: newClient, error: clientErr } = await supabase
-                .from('clients')
-                .insert(newClientPayload)
-                .select()
-                .single();
+          const existingClientId = clientsMap.get(normIdent) || (cleanIdentPhone ? clientsMap.get(cleanIdentPhone) : null);
+          if (!existingClientId && !newClientsMap.has(normIdent)) {
+            const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
+            newClientsMap.set(normIdent, {
+              name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
+              phone: isPhoneLike ? rawIdent : null,
+              notes: 'Cadastrado automaticamente via importador de veículos.',
+            });
+          }
 
-              if (clientErr) throw clientErr;
+          vehicleRowsToProcess.push({ plateClean, rawPlate, brand, model, clientIdent: rawIdent, notes });
+        }
 
-              if (newClient && newClient.id) {
-                clientId = newClient.id;
-              } else {
-                const { data: allClients } = await supabase.from('clients').select('*');
-                const matched = (allClients || []).find((c: Client) => normalizeKey(c.name) === normIdent);
-                if (matched) {
-                  clientId = matched.id;
-                } else {
-                  clientId = 'c_' + Math.random().toString(36).substring(2, 9);
+        // Batch Insert Missing Clients
+        const newClientsList = Array.from(newClientsMap.values());
+        if (newClientsList.length > 0) {
+          for (let c = 0; c < newClientsList.length; c += 200) {
+            const chunk = newClientsList.slice(c, c + 200);
+            const { data: inserted, error: cErr } = await supabase.from('clients').insert(chunk).select('id, name, phone');
+            if (inserted) {
+              inserted.forEach((cli) => {
+                const normN = normalizeKey(cli.name);
+                clientsMap.set(normN, cli.id);
+                if (cli.phone) {
+                  clientsMap.set(cli.phone.trim(), cli.id);
+                  const cleanP = cli.phone.replace(/\D/g, '');
+                  if (cleanP) clientsMap.set(cleanP, cli.id);
                 }
-              }
-
-              clientsMap.set(normIdent, clientId);
-              if (cleanIdentPhone) clientsMap.set(cleanIdentPhone, clientId);
-            } catch (err) {
-              console.error('Erro ao criar cliente para veículo:', err);
-              failedCount++;
-              errors.push(`Linha ${i + 2} (Placa ${formattedPlate}): Não foi possível vincular ou criar o proprietário "${rawIdent}".`);
-              continue;
+              });
+            } else if (cErr) {
+              console.warn('Erro ao inserir clientes de veículos:', cErr);
             }
           }
+        }
 
-          // Parse year
-          const yearRaw = getMappedValue(row, 'year');
-          let year: number | null = null;
-          if (yearRaw) {
-            const parsedYear = parseInt(yearRaw.replace(/\D/g, ''), 10);
-            if (!isNaN(parsedYear)) year = parsedYear;
+        // Batch Insert Vehicles
+        const vehiclesToInsertMap = new Map<string, { plate: string; brand: string; model: string; client_id: string | null; notes: string | null }>();
+
+        vehicleRowsToProcess.forEach((item) => {
+          const normIdent = normalizeKey(item.clientIdent);
+          const cleanIdentPhone = item.clientIdent.replace(/\D/g, '');
+          const clientId = clientsMap.get(normIdent) || (cleanIdentPhone ? clientsMap.get(cleanIdentPhone) || null : null);
+
+          if (!vehiclesMap.has(item.plateClean) && !vehiclesToInsertMap.has(item.plateClean)) {
+            vehiclesToInsertMap.set(item.plateClean, {
+              plate: item.plateClean,
+              brand: item.brand,
+              model: item.model,
+              client_id: clientId,
+              notes: item.notes,
+            });
+          } else {
+            successCount++;
           }
+        });
 
-          const newBrand = brand && brand.trim() ? brand.trim() : null;
-          const newModel = model && model.trim() ? model.trim() : null;
-          const newNotes = getMappedValue(row, 'notes')?.trim() || null;
-
-          const vehiclePayload = {
-            plate: formattedPlate,
-            brand: newBrand || (existingVehicle?.brand && existingVehicle.brand !== 'Não informada' ? existingVehicle.brand : 'Não informada'),
-            model: newModel || (existingVehicle?.model && existingVehicle.model !== 'Não informado' ? existingVehicle.model : 'Não informado'),
-            year: year ?? (existingVehicle?.year || null),
-            client_id: clientId || existingVehicle?.client_id || null,
-            notes: newNotes || existingVehicle?.notes || null,
-          };
-
-          try {
-            if (existingVehicle) {
-              // Update existing vehicle instead of duplicating
-              const { error: vehicleErr } = await supabase
-                .from('vehicles')
-                .update(vehiclePayload)
-                .eq('id', existingVehicle.id);
-
-              if (vehicleErr) throw vehicleErr;
-
-              const updatedVehicle = { ...existingVehicle, ...vehiclePayload };
-              vehiclesMap.set(formattedPlate, updatedVehicle);
-              if (cleanPlate) vehiclesMap.set(cleanPlate, updatedVehicle);
-              successCount++;
-            } else {
-              // Insert new vehicle
-              const { data: newV, error: vehicleErr } = await supabase
-                .from('vehicles')
-                .insert(vehiclePayload)
-                .select()
-                .single();
-
-              if (vehicleErr) throw vehicleErr;
-
-              const createdVehicle = newV || { id: 'v_' + Math.random().toString(36).substring(2, 9), ...vehiclePayload };
-              vehiclesMap.set(formattedPlate, createdVehicle);
-              if (cleanPlate) vehiclesMap.set(cleanPlate, createdVehicle);
-              successCount++;
-            }
-          } catch (err) {
-            failedCount++;
-            errors.push(`Erro ao importar veículo "${formattedPlate}": ${formatErrorMessage(err)}`);
+        const newVehiclesList = Array.from(vehiclesToInsertMap.values());
+        for (let v = 0; v < newVehiclesList.length; v += 200) {
+          const chunk = newVehiclesList.slice(v, v + 200);
+          const { data: inserted, error: vErr } = await supabase.from('vehicles').insert(chunk).select('id, plate');
+          if (vErr) {
+            failedCount += chunk.length;
+            errors.push(`Erro ao salvar lote de veículos: ${formatErrorMessage(vErr)}`);
+          } else {
+            successCount += inserted?.length || chunk.length;
           }
         }
       } else {
-        // Importing service orders
-        const { data: existingVehicles } = await supabase.from('vehicles').select('id, plate, client_id');
-        const vehiclesMap = new Map<string, { id: string; client_id: string }>();
-        (existingVehicles || []).forEach((v: any) => {
-          if (v.plate) {
-            const pClean = v.plate.toUpperCase().trim();
-            const pAlpha = pClean.replace(/[^A-Z0-9]/g, '');
-            vehiclesMap.set(pClean, { id: v.id, client_id: v.client_id });
-            if (pAlpha) vehiclesMap.set(pAlpha, { id: v.id, client_id: v.client_id });
-          }
-        });
+        // High-Speed Master / Services Import ('master' or 'orders')
+        // Step 1: In-memory extract missing clients & vehicles
+        const newClientsMap = new Map<string, { name: string; phone: string | null; notes: string | null }>();
 
-        const { data: existingClients } = await supabase.from('clients').select('id, name, phone');
-        const clientsMap = new Map<string, string>();
-        (existingClients || []).forEach((c: any) => {
-          if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
-          if (c.phone) {
-            const cleanP = c.phone.replace(/\D/g, '');
-            if (cleanP) clientsMap.set(cleanP, c.id);
-          }
-        });
-
-        // Stage 1: Group spreadsheet rows into unified Service Orders (by OS Number or Plate + Date)
-        type ServiceItemRow = {
-          serviceDesc: string;
-          itemTypeRaw: string;
-          price: number;
-        };
-
-        type OSGroup = {
-          plateClean: string;
-          clientIdentRaw: string;
-          orderNumberRaw: string;
-          orderDate: string;
-          mileage: number | null;
-          status: string;
-          items: ServiceItemRow[];
-        };
-
-        const osGroupsMap = new Map<string, OSGroup>();
-
-        for (let i = 0; i < rows.length; i++) {
-          const row = rows[i];
-          const plateRaw = getMappedValue(row, 'plate');
-          const clientIdentRaw = getMappedValue(row, 'client_identifier');
-          const orderNumberRaw = getMappedValue(row, 'order_number');
-          const dateRaw = getMappedValue(row, 'order_date');
-          const serviceDesc = getMappedValue(row, 'service_description');
-          const priceRaw = getMappedValue(row, 'price');
-          const mileageRaw = getMappedValue(row, 'mileage');
-          const statusRaw = getMappedValue(row, 'status');
-          const itemTypeRaw = getMappedValue(row, 'item_type');
-
-          if (!plateRaw || !plateRaw.trim()) {
-            failedCount++;
-            errors.push(`Linha ${i + 2}: Placa do veículo é obrigatória.`);
-            continue;
-          }
-
-          const plateClean = plateRaw.trim().toUpperCase();
-          const orderDate = parseImportDate(dateRaw);
-
-          let price = 0;
-          if (priceRaw) {
-            const cleanPrice = priceRaw.replace('R$', '').replace(/\s/g, '').replace('.', '').replace(',', '.');
-            const parsedPrice = parseFloat(cleanPrice);
-            if (!isNaN(parsedPrice)) price = parsedPrice;
-          }
-
-          let mileage: number | null = null;
-          if (mileageRaw) {
-            const parsedKm = parseInt(mileageRaw.replace(/\D/g, ''), 10);
-            if (!isNaN(parsedKm)) mileage = parsedKm;
-          }
-
-          let status = 'fechada';
-          if (statusRaw) {
-            const sLower = statusRaw.toLowerCase();
-            if (sLower.includes('abert') || sLower.includes('pendent')) {
-              status = 'aberta';
+        rows.forEach((row) => {
+          const cName = getMappedValue(row, 'client_name') || getMappedValue(row, 'name') || getMappedValue(row, 'client_identifier');
+          const cPhone = getMappedValue(row, 'client_phone') || getMappedValue(row, 'phone');
+          if (cName && cName.trim()) {
+            const trimmedName = cName.trim();
+            const normN = normalizeKey(trimmedName);
+            const cleanP = cPhone ? cPhone.replace(/\D/g, '') : '';
+            const existingId = clientsMap.get(normN) || (cleanP ? clientsMap.get(cleanP) : null);
+            if (!existingId && !newClientsMap.has(normN)) {
+              newClientsMap.set(normN, {
+                name: trimmedName,
+                phone: cPhone ? cPhone.trim() : null,
+                notes: 'Cadastrado automaticamente via importador.',
+              });
             }
           }
+        });
 
-          const orderNumClean = orderNumberRaw ? orderNumberRaw.trim() : '';
-
-          // Determine grouping key based on selected strategy
-          let groupKey = '';
-          if (groupingStrategy === 'plate_date') {
-            groupKey = `DATE_${plateClean}_${orderDate}`;
-          } else if (groupingStrategy === 'order_number' && orderNumClean) {
-            groupKey = `OS_${plateClean}_${orderNumClean}`;
-          } else if (groupingStrategy === 'plate_date_client') {
-            const clientNorm = clientIdentRaw ? normalizeKey(clientIdentRaw) : '';
-            groupKey = `PDC_${plateClean}_${orderDate}_${clientNorm}`;
-          } else {
-            // 'none' or fallback
-            groupKey = `ROW_${i}_${plateClean}_${Math.random()}`;
+        // Batch Insert Clients
+        const newClientsList = Array.from(newClientsMap.values());
+        if (newClientsList.length > 0) {
+          for (let c = 0; c < newClientsList.length; c += 200) {
+            const chunk = newClientsList.slice(c, c + 200);
+            const { data: inserted } = await supabase.from('clients').insert(chunk).select('id, name, phone');
+            if (inserted) {
+              inserted.forEach((cli) => {
+                const normN = normalizeKey(cli.name);
+                clientsMap.set(normN, cli.id);
+                if (cli.phone) {
+                  clientsMap.set(cli.phone.trim(), cli.id);
+                  const cleanP = cli.phone.replace(/\D/g, '');
+                  if (cleanP) clientsMap.set(cleanP, cli.id);
+                }
+              });
+            }
           }
+        }
+
+        // Step 2: In-memory extract missing vehicles
+        const newVehiclesMap = new Map<string, { plate: string; brand: string; model: string; client_id: string | null; notes: string | null }>();
+
+        rows.forEach((row) => {
+          const plate = getMappedValue(row, 'plate');
+          if (!plate || !plate.trim()) return;
+          const plateClean = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (!plateClean) return;
+
+          if (!vehiclesMap.has(plateClean) && !newVehiclesMap.has(plateClean)) {
+            const cName = getMappedValue(row, 'client_name') || getMappedValue(row, 'name') || getMappedValue(row, 'client_identifier');
+            const cPhone = getMappedValue(row, 'client_phone') || getMappedValue(row, 'phone');
+            let clientId: string | null = null;
+            if (cName && cName.trim()) {
+              const normN = normalizeKey(cName.trim());
+              const cleanP = cPhone ? cPhone.replace(/\D/g, '') : '';
+              clientId = clientsMap.get(normN) || (cleanP ? clientsMap.get(cleanP) || null : null);
+            }
+
+            const brand = getMappedValue(row, 'brand')?.trim() || 'Veículo';
+            const model = getMappedValue(row, 'model')?.trim() || 'Importado';
+
+            newVehiclesMap.set(plateClean, {
+              plate: plateClean,
+              brand,
+              model,
+              client_id: clientId,
+              notes: 'Cadastrado via importador de O.S.',
+            });
+          }
+        });
+
+        // Batch Insert Vehicles
+        const newVehiclesList = Array.from(newVehiclesMap.values());
+        if (newVehiclesList.length > 0) {
+          for (let v = 0; v < newVehiclesList.length; v += 200) {
+            const chunk = newVehiclesList.slice(v, v + 200);
+            const { data: inserted } = await supabase.from('vehicles').insert(chunk).select('id, plate, client_id');
+            if (inserted) {
+              inserted.forEach((veh) => {
+                const cleanP = veh.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                vehiclesMap.set(cleanP, { id: veh.id, client_id: veh.client_id });
+              });
+            }
+          }
+        }
+
+        // Step 3: Group Service Orders
+        const osGroupsMap = new Map<string, {
+          plateClean: string;
+          orderNumberRaw: string | null;
+          orderDate: string;
+          mileage: number;
+          status: 'aberta' | 'concluida' | 'cancelada';
+          clientIdentRaw: string | null;
+          items: Array<{ serviceDesc: string | null; itemTypeRaw: string | null; price: number }>;
+        }>();
+
+        rows.forEach((row, i) => {
+          const plate = getMappedValue(row, 'plate');
+          if (!plate || !plate.trim()) {
+            failedCount++;
+            errors.push(`Linha ${i + 2}: Placa em branco.`);
+            return;
+          }
+          const plateClean = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (!plateClean) return;
+
+          const dateRaw = getMappedValue(row, 'order_date');
+          const orderDate = parseImportDate(dateRaw);
+          const orderNumRaw = getMappedValue(row, 'order_number')?.trim() || null;
+          const clientIdentRaw = getMappedValue(row, 'client_name') || getMappedValue(row, 'name') || getMappedValue(row, 'client_identifier');
+
+          let groupKey = '';
+          if (groupingStrategy === 'order_number' && orderNumRaw) {
+            groupKey = `NUM_${orderNumRaw}_${plateClean}`;
+          } else {
+            groupKey = `DATE_${plateClean}_${orderDate}`;
+            if (orderNumRaw) groupKey += `_${orderNumRaw}`;
+          }
+
+          const mileageRaw = getMappedValue(row, 'mileage');
+          const mileage = mileageRaw ? (parseInt(mileageRaw.replace(/\D/g, ''), 10) || 0) : 0;
+
+          const statusRaw = getMappedValue(row, 'status')?.toLowerCase().trim() || '';
+          let status: 'aberta' | 'concluida' | 'cancelada' = 'concluida';
+          if (statusRaw.includes('abert') || statusRaw.includes('pendent')) status = 'aberta';
+
+          const priceRaw = getMappedValue(row, 'price');
+          let price = 0;
+          if (priceRaw) {
+            const cleanVal = priceRaw.replace(/R\$\s?/gi, '').replace(/\./g, '').replace(',', '.').trim();
+            price = parseFloat(cleanVal) || 0;
+          }
+
+          const serviceDesc = getMappedValue(row, 'service_description');
+          const itemTypeRaw = getMappedValue(row, 'item_type');
 
           if (!osGroupsMap.has(groupKey)) {
             osGroupsMap.set(groupKey, {
               plateClean,
-              clientIdentRaw: clientIdentRaw?.trim() || '',
-              orderNumberRaw: orderNumClean,
+              orderNumberRaw: orderNumRaw,
               orderDate,
               mileage,
               status,
-              items: [{ serviceDesc: serviceDesc || '', itemTypeRaw: itemTypeRaw || '', price }],
+              clientIdentRaw,
+              items: [],
             });
-          } else {
-            const group = osGroupsMap.get(groupKey)!;
-            group.items.push({ serviceDesc: serviceDesc || '', itemTypeRaw: itemTypeRaw || '', price });
-            if (!group.clientIdentRaw && clientIdentRaw?.trim()) {
-              group.clientIdentRaw = clientIdentRaw.trim();
-            }
-            if (group.mileage === null && mileage !== null) {
-              group.mileage = mileage;
-            }
-            if (status === 'aberta') {
-              group.status = 'aberta';
-            }
           }
-        }
 
-        // Stage 2: Process each OS Group in parallel batch chunks for high-speed import
-        const osGroups = Array.from(osGroupsMap.values());
-        const BATCH_SIZE = 8;
+          const group = osGroupsMap.get(groupKey)!;
+          if (serviceDesc || price > 0 || itemTypeRaw) {
+            group.items.push({ serviceDesc, itemTypeRaw, price });
+          }
+        });
 
-        for (let gIndex = 0; gIndex < osGroups.length; gIndex += BATCH_SIZE) {
-          const chunk = osGroups.slice(gIndex, gIndex + BATCH_SIZE);
-          await Promise.all(
-            chunk.map(async (group) => {
-              const plateClean = group.plateClean;
-              const plateAlpha = plateClean.replace(/[^A-Z0-9]/g, '');
+        // Step 4: Batch Insert Service Orders & Items
+        const osGroupsList = Array.from(osGroupsMap.values());
+        for (let g = 0; g < osGroupsList.length; g += 200) {
+          const chunk = osGroupsList.slice(g, g + 200);
 
-              // Try to resolve client if specified
-              let rowClientId = '';
-              if (group.clientIdentRaw) {
-                const rawIdent = group.clientIdentRaw;
-                const normIdent = normalizeKey(rawIdent);
-                const cleanIdentPhone = rawIdent.replace(/\D/g, '');
+          const ordersToInsert = chunk.map((group) => {
+            const vehInfo = vehiclesMap.get(group.plateClean);
+            let clientId = vehInfo?.client_id || null;
+            if (!clientId && group.clientIdentRaw) {
+              const normN = normalizeKey(group.clientIdentRaw);
+              const cleanP = group.clientIdentRaw.replace(/\D/g, '');
+              clientId = clientsMap.get(normN) || (cleanP ? clientsMap.get(cleanP) || null : null);
+            }
+            return {
+              vehicle_id: vehInfo?.id || null,
+              client_id: clientId,
+              order_date: group.orderDate,
+              mileage: group.mileage,
+              status: group.status,
+            };
+          }).filter((o) => o.vehicle_id && o.client_id);
 
-                if (clientsMap.has(normIdent)) {
-                  rowClientId = clientsMap.get(normIdent)!;
-                } else if (cleanIdentPhone && clientsMap.has(cleanIdentPhone)) {
-                  rowClientId = clientsMap.get(cleanIdentPhone)!;
-                } else {
-                  try {
-                    const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
-                    const newClientPayload = {
-                      name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
-                      phone: isPhoneLike ? rawIdent : null,
-                      notes: 'Cadastrado automaticamente via importador de O.S.',
-                    };
-                    const { data: newC } = await supabase.from('clients').insert(newClientPayload).select('id').single();
-                    if (newC?.id) {
-                      rowClientId = newC.id;
-                      clientsMap.set(normIdent, rowClientId);
-                      if (cleanIdentPhone) clientsMap.set(cleanIdentPhone, rowClientId);
-                    }
-                  } catch (cErr) {
-                    console.warn('Erro ao criar cliente para O.S.:', cErr);
-                  }
-                }
-              }
+          if (ordersToInsert.length === 0) continue;
 
-              // Ensure targetClientId is available as a fallback
-              let targetClientId = rowClientId;
-              if (!targetClientId) {
-                try {
-                  const fallbackName = `Cliente Placa ${plateClean}`;
-                  const normFb = normalizeKey(fallbackName);
-                  if (clientsMap.has(normFb)) {
-                    targetClientId = clientsMap.get(normFb)!;
-                  } else {
-                    const { data: newC } = await supabase
-                      .from('clients')
-                      .insert({
-                        name: fallbackName,
-                        notes: 'Cadastrado automaticamente durante a importação de O.S.',
-                      })
-                      .select('id')
-                      .single();
-                    if (newC?.id) {
-                      targetClientId = newC.id;
-                      clientsMap.set(normFb, targetClientId);
+          const { data: insertedOrders, error: orderErr } = await supabase
+            .from('service_orders')
+            .insert(ordersToInsert)
+            .select('id');
+
+          if (orderErr) {
+            failedCount += chunk.length;
+            errors.push(`Erro ao inserir lote de O.S.: ${formatErrorMessage(orderErr)}`);
+            continue;
+          }
+
+          if (insertedOrders && insertedOrders.length > 0) {
+            const itemsToInsert: any[] = [];
+            insertedOrders.forEach((order, idx) => {
+              const group = chunk[idx];
+              if (group && group.items) {
+                group.items.forEach((item) => {
+                  let itemType: 'servico' | 'peca' = 'servico';
+                  if (item.itemTypeRaw && item.itemTypeRaw.trim()) {
+                    const normRef = normalizeKey(item.itemTypeRaw);
+                    if (
+                      normRef.includes('pc') ||
+                      normRef.includes('peca') ||
+                      normRef.includes('part') ||
+                      normRef.includes('produto') ||
+                      normRef === 'p'
+                    ) {
+                      itemType = 'peca';
                     }
                   }
-                } catch (cErr) {
-                  console.warn('Erro ao criar cliente fallback:', cErr);
-                }
-              }
-
-              let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
-
-              if (!vehicleInfo) {
-                const plateCond = plateAlpha && plateAlpha !== plateClean
-                  ? `plate.eq.${plateClean},plate.eq.${plateAlpha}`
-                  : `plate.eq.${plateClean}`;
-                const { data: dbV } = await supabase.from('vehicles').select('id, client_id, plate').or(plateCond).limit(1);
-                if (dbV && dbV.length > 0) {
-                  vehicleInfo = { id: dbV[0].id, client_id: dbV[0].client_id };
-                  vehiclesMap.set(plateClean, vehicleInfo);
-                  if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
-                }
-              }
-
-              if (!vehicleInfo) {
-                try {
-                  const { data: newV, error: vErr } = await supabase
-                    .from('vehicles')
-                    .insert({
-                      plate: plateClean,
-                      brand: 'Veículo',
-                      model: 'Importado',
-                      client_id: targetClientId || null,
-                      notes: 'Cadastrado automaticamente via importador de O.S.',
-                    })
-                    .select('id, client_id')
-                    .single();
-
-                  if (vErr) throw vErr;
-                  if (newV && newV.id) {
-                    vehicleInfo = { id: newV.id, client_id: newV.client_id || targetClientId };
-                    vehiclesMap.set(plateClean, vehicleInfo);
-                    if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
-                  } else {
-                    throw new Error('Falha ao registrar novo veículo');
-                  }
-                } catch (vErr) {
-                  failedCount++;
-                  errors.push(`O.S. Placa ${plateClean} (${group.orderDate}): Não foi possível localizar ou cadastrar o veículo: ${formatErrorMessage(vErr)}`);
-                  return;
-                }
-              } else if (!vehicleInfo.client_id && targetClientId) {
-                try {
-                  await supabase.from('vehicles').update({ client_id: targetClientId }).eq('id', vehicleInfo.id);
-                  vehicleInfo.client_id = targetClientId;
-                  vehiclesMap.set(plateClean, vehicleInfo);
-                } catch (uErr) {
-                  console.warn('Erro ao atualizar client_id do veículo:', uErr);
-                }
-              }
-
-              const finalClientId = vehicleInfo.client_id || targetClientId;
-
-              try {
-                if (!finalClientId) {
-                  throw new Error(`Não foi possível determinar o proprietário (client_id) do veículo ${plateClean}`);
-                }
-
-                const { data: newOrder, error: orderErr } = await supabase
-                  .from('service_orders')
-                  .insert({
-                    vehicle_id: vehicleInfo.id,
-                    client_id: finalClientId,
-                    order_date: group.orderDate,
-                    mileage: group.mileage,
-                    status: group.status,
-                  })
-                  .select('id')
-                  .single();
-
-                if (orderErr) throw orderErr;
-
-                if (newOrder && newOrder.id) {
-                  const itemsToInsert = group.items.map((item) => {
-                    let itemType: 'servico' | 'peca' = 'servico';
-                    if (item.itemTypeRaw && item.itemTypeRaw.trim()) {
-                      const normRef = normalizeKey(item.itemTypeRaw);
-                      if (
-                        normRef.includes('pc') ||
-                        normRef.includes('peca') ||
-                        normRef.includes('part') ||
-                        normRef.includes('produto') ||
-                        normRef === 'p'
-                      ) {
-                        itemType = 'peca';
-                      }
-                    }
-                    return {
-                      order_id: newOrder.id,
-                      item_type: itemType,
-                      description: (item.serviceDesc && item.serviceDesc.trim())
-                        ? item.serviceDesc.trim()
-                        : (itemType === 'peca' ? 'Peça' : 'Serviço'),
-                      price: item.price,
-                    };
+                  itemsToInsert.push({
+                    order_id: order.id,
+                    item_type: itemType,
+                    description: (item.serviceDesc && item.serviceDesc.trim())
+                      ? item.serviceDesc.trim()
+                      : (itemType === 'peca' ? 'Peça' : 'Serviço'),
+                    price: item.price,
                   });
-
-                  const { error: itemErr } = await supabase.from('order_items').insert(itemsToInsert);
-                  if (itemErr) throw itemErr;
-                }
-
-                successCount++;
-              } catch (err) {
-                failedCount++;
-                errors.push(`Erro ao importar O.S. para "${plateClean}" (${group.orderDate}): ${formatErrorMessage(err)}`);
+                });
               }
-            })
-          );
+            });
+
+            if (itemsToInsert.length > 0) {
+              for (let it = 0; it < itemsToInsert.length; it += 500) {
+                const itemChunk = itemsToInsert.slice(it, it + 500);
+                const { error: itemErr } = await supabase.from('order_items').insert(itemChunk);
+                if (itemErr) {
+                  console.warn('Erro ao inserir lote de itens:', itemErr);
+                }
+              }
+            }
+            successCount += insertedOrders.length;
+          }
         }
       }
 
@@ -1064,7 +961,40 @@ export default function ImportView() {
             <div className="text-center max-w-xl mx-auto space-y-2">
               <Database className="w-12 h-12 text-sky-500 mx-auto" />
               <h2 className="text-xl font-extrabold text-slate-800">O que você gostaria de importar hoje?</h2>
-              <p className="text-sm text-slate-500">Selecione a categoria correspondente à tabela que você exportou do Microsoft Access.</p>
+              <p className="text-sm text-slate-500">Escolha a importação direta de arquivo único ou por categoria.</p>
+            </div>
+
+            {/* Featured Master Import Option */}
+            <div className="max-w-4xl mx-auto">
+              <button
+                onClick={() => {
+                  setImportType('master');
+                  setMappings(getInitialMappings('master'));
+                  setStep(2);
+                }}
+                className="w-full group relative bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-emerald-500/10 hover:from-sky-500/20 hover:via-indigo-500/20 hover:to-emerald-500/20 border-2 border-sky-500/40 hover:border-sky-500 rounded-3xl p-6 text-left transition-all cursor-pointer shadow-md hover:shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-600 text-white shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform shrink-0">
+                    <Zap className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-600 text-white text-[10px] font-black uppercase tracking-wider mb-1">
+                      ⚡ Recomendado - 100x Mais Rápido
+                    </div>
+                    <h3 className="text-lg font-black text-slate-900 group-hover:text-sky-700 transition-colors">
+                      Planilha Única (Clientes + Veículos + Serviços)
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-1 max-w-xl leading-relaxed">
+                      Possui uma única planilha com todas as O.S., placas e clientes repetidos? O sistema cria os clientes, cadastra os veículos e agrupa os serviços em <strong>uma única passada ultrarrápida</strong>.
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 bg-sky-600 group-hover:bg-sky-700 text-white rounded-2xl text-xs font-black shadow-md shrink-0 transition-colors">
+                  <span>Usar Planilha Única</span>
+                  <ArrowRight className="w-4 h-4" />
+                </div>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto">
@@ -1233,7 +1163,7 @@ export default function ImportView() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-800">
-                  Carregar {importType === 'clients' ? 'Clientes' : importType === 'vehicles' ? 'Veículos' : 'Ordens de Serviço'}
+                  Carregar {importType === 'master' ? 'Planilha Única (Completa)' : importType === 'clients' ? 'Clientes' : importType === 'vehicles' ? 'Veículos' : 'Ordens de Serviço'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">Escolha uma das duas formas práticas abaixo para trazer seus dados.</p>
               </div>

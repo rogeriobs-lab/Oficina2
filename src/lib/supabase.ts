@@ -839,7 +839,7 @@ export const consolidateDuplicateOrders = async (): Promise<{ success: boolean; 
         continue;
       }
 
-      const maxMileage = ordersList.reduce<number | null>((acc, o) => {
+      const maxMileage = ordersList.reduce((acc: number | null, o: any) => {
         if (o.mileage !== null && (acc === null || o.mileage > acc)) return o.mileage;
         return acc;
       }, primaryOrder.mileage);
