@@ -3,7 +3,7 @@ import { supabase } from '@/src/lib/supabase';
 import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
 import { computeOrderNumbers } from '@/src/lib/orderUtils';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet, X } from 'lucide-react';
 
 type OrderRow = {
   id: string;
@@ -23,6 +23,7 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'todas' | 'aberta' | 'fechada'>('todas');
   const [page, setPage] = useState(1);
@@ -241,6 +242,18 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
     return matchSearch && matchStatus;
   });
 
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    setSearch(searchInput.trim());
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setSearch('');
+    setPage(1);
+  };
+
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={loadOrders} />;
 
@@ -273,16 +286,42 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
 
       {/* Search & Filter Bar */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3.5">
-        <div className="relative">
-          <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Buscar por cliente, modelo ou placa do veículo..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="block w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all outline-none"
-          />
-        </div>
+        <form onSubmit={handleSearchSubmit} className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Digite a placa, cliente ou modelo e pressione Enter para buscar..."
+              value={searchInput}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSearchInput(val);
+                if (val === '' && search !== '') {
+                  setSearch('');
+                  setPage(1);
+                }
+              }}
+              className="block w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all outline-none"
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
+                title="Limpar pesquisa"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <button
+            type="submit"
+            className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
+          >
+            <Search className="w-4 h-4" />
+            <span className="hidden sm:inline">Buscar</span>
+          </button>
+        </form>
 
         {/* Filter Chips */}
         <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
