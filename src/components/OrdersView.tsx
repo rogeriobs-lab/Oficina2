@@ -39,7 +39,7 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
 
       let query = supabase
         .from('service_orders')
-        .select('id, order_date, mileage, status, clients(name), vehicles(plate, brand, model, year), order_items(price)', { count: 'exact' })
+        .select('id, order_date, mileage, status, clients(name), vehicles(plate, brand, model, year), order_items(price)', { count: 'estimated' })
         .order('order_date', { ascending: false });
 
       if (statusFilter !== 'todas') {
@@ -51,7 +51,16 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
       if (error) throw error;
 
       setOrders((data ?? []) as unknown as OrderRow[]);
-      setTotalCount(count ?? 0);
+
+      if (count && count > 0) {
+        setTotalCount(count);
+      } else {
+        // Fallback simple count query without joins
+        let countQ = supabase.from('service_orders').select('id', { count: 'exact', head: true });
+        if (statusFilter !== 'todas') countQ = countQ.eq('status', statusFilter);
+        const { count: exactCount } = await countQ;
+        setTotalCount(exactCount ?? data?.length ?? 0);
+      }
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar ordens de serviço');
       setError(msg);

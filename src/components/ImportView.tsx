@@ -582,7 +582,7 @@ export default function ImportView() {
         }
       } else {
         // Importing service orders
-        const { data: existingVehicles } = await supabase.from('vehicles').select('*, clients(*)');
+        const { data: existingVehicles } = await supabase.from('vehicles').select('id, plate, client_id');
         const vehiclesMap = new Map<string, { id: string; client_id: string }>();
         (existingVehicles || []).forEach((v: any) => {
           if (v.plate) {
@@ -593,7 +593,7 @@ export default function ImportView() {
           }
         });
 
-        const { data: existingClients } = await supabase.from('clients').select('*');
+        const { data: existingClients } = await supabase.from('clients').select('id').limit(1);
         let defaultClientId = existingClients && existingClients.length > 0 ? existingClients[0].id : '';
 
         for (let i = 0; i < rows.length; i++) {

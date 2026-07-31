@@ -52,11 +52,29 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
     try {
       setError(null);
 
-      const [clientsRes, vehiclesRes, ordersCountRes, openOrdersCountRes, recentOrdersRes] = await Promise.all([
-        supabase.from('clients').select('*', { count: 'exact', head: true }),
-        supabase.from('vehicles').select('*', { count: 'exact', head: true }),
-        supabase.from('service_orders').select('*', { count: 'exact', head: true }),
-        supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('status', 'aberta'),
+      // Helper for fast counts
+      const getCount = async (table: string, statusFilter?: string) => {
+        try {
+          let q = supabase.from(table as any).select('*', { count: 'estimated', head: true });
+          if (statusFilter) q = q.eq('status', statusFilter);
+          const res = await q;
+          if (res.count !== null && res.count !== undefined && res.count > 0) return res.count;
+
+          // Fallback to exact count if estimated is null or 0
+          let qExact = supabase.from(table as any).select('*', { count: 'exact', head: true });
+          if (statusFilter) qExact = qExact.eq('status', statusFilter);
+          const resExact = await qExact;
+          return resExact.count ?? 0;
+        } catch {
+          return 0;
+        }
+      };
+
+      const [cCount, vCount, oCount, openCount, recentOrdersRes] = await Promise.all([
+        getCount('clients'),
+        getCount('vehicles'),
+        getCount('service_orders'),
+        getCount('service_orders', 'aberta'),
         supabase
           .from('service_orders')
           .select('id, order_date, status, clients(name), vehicles(plate, brand, model), order_items(price)')
@@ -64,20 +82,27 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
           .limit(10),
       ]);
 
-      if (clientsRes.error) throw clientsRes.error;
-      if (vehiclesRes.error) throw vehiclesRes.error;
-      if (ordersCountRes.error) throw ordersCountRes.error;
-      if (openOrdersCountRes.error) throw openOrdersCountRes.error;
-      if (recentOrdersRes.error) throw recentOrdersRes.error;
-
       setStats({
-        clientCount: clientsRes.count ?? 0,
-        vehicleCount: vehiclesRes.count ?? 0,
-        orderCount: ordersCountRes.count ?? 0,
-        openOrders: openOrdersCountRes.count ?? 0,
+        clientCount: cCount,
+        vehicleCount: vCount,
+        orderCount: oCount,
+        openOrders: openCount,
       });
 
-      setRecentOrders((recentOrdersRes.data ?? []) as unknown as RecentOrder[]);
+      if (recentOrdersRes.error) {
+        console.warn('Erro ao buscar ordens recentes:', recentOrdersRes.error);
+        // Fallback: try fetching simple orders without nested joins if join timed out
+        const simpleRes = await supabase
+          .from('service_orders')
+          .select('id, order_date, status')
+          .order('order_date', { ascending: false })
+          .limit(10);
+        if (!simpleRes.error && simpleRes.data) {
+          setRecentOrders(simpleRes.data as unknown as RecentOrder[]);
+        }
+      } else {
+        setRecentOrders((recentOrdersRes.data ?? []) as unknown as RecentOrder[]);
+      }
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao consultar o banco de dados Supabase');
       setError(msg);

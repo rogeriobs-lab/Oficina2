@@ -100,6 +100,14 @@ ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.service_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 
+-- ÍNDICES DE DESEMPENHO PARA CONSULTAS RÁPIDAS
+CREATE INDEX IF NOT EXISTS idx_service_orders_order_date ON public.service_orders(order_date DESC);
+CREATE INDEX IF NOT EXISTS idx_service_orders_client_id ON public.service_orders(client_id);
+CREATE INDEX IF NOT EXISTS idx_service_orders_vehicle_id ON public.service_orders(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON public.order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_plate ON public.vehicles(plate);
+CREATE INDEX IF NOT EXISTS idx_clients_name ON public.clients(name);
+
 DROP POLICY IF EXISTS "Acesso total clientes" ON public.clients;
 CREATE POLICY "Acesso total clientes" ON public.clients FOR ALL USING (true) WITH CHECK (true);
 

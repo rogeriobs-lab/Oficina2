@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients: Pick<Client, 'name'> };
 
@@ -18,6 +18,9 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [search, setSearch] = useState('');
   const [editingVehicle, setEditingVehicle] = useState<VehicleRow | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 50;
 
   const [formPlate, setFormPlate] = useState('');
   const [formBrand, setFormBrand] = useState('');
@@ -30,22 +33,38 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
 
   const loadData = useCallback(async () => {
     try {
+      setLoading(true);
       setError(null);
+      const from = (page - 1) * pageSize;
+      const to = page * pageSize - 1;
+
+      let vehiclesQuery = supabase
+        .from('vehicles')
+        .select('*, clients(name)', { count: 'estimated' })
+        .order('plate');
+
+      if (search.trim()) {
+        vehiclesQuery = vehiclesQuery.or(`plate.ilike.%${search.trim()}%,brand.ilike.%${search.trim()}%,model.ilike.%${search.trim()}%`);
+      }
+
       const [vehiclesRes, clientsRes] = await Promise.all([
-        supabase.from('vehicles').select('*, clients(name)').order('plate'),
-        supabase.from('clients').select('*').order('name'),
+        vehiclesQuery.range(from, to),
+        supabase.from('clients').select('id, name').order('name').limit(200),
       ]);
+
       if (vehiclesRes.error) throw vehiclesRes.error;
-      if (clientsRes.error) throw clientsRes.error;
+      if (clientsRes.error) console.warn('Erro ao carregar lista de clientes para seleção:', clientsRes.error);
+
       setVehicles((vehiclesRes.data ?? []) as VehicleRow[]);
-      setClients(clientsRes.data ?? []);
+      setTotalCount(vehiclesRes.count ?? vehiclesRes.data?.length ?? 0);
+      setClients((clientsRes.data ?? []) as Client[]);
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar veículos');
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, search]);
 
   useEffect(() => {
     loadData();
@@ -185,61 +204,93 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
       {filtered.length === 0 ? (
         <EmptyState message={search ? 'Nenhum veículo encontrado com os dados digitados' : 'Nenhum veículo cadastrado. Clique em "Novo Veículo" para começar.'} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {filtered.map((vehicle) => (
-            <div
-              key={vehicle.id}
-              className="group relative bg-white border border-slate-200/80 rounded-2xl p-5 hover:shadow-md hover:border-amber-400/80 transition-all flex flex-col justify-between gap-4"
-            >
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  {/* Plate Badge styled like Mercosul plate */}
-                  <div className="inline-flex flex-col border border-slate-900 rounded-lg bg-white min-w-[105px] text-center overflow-hidden shadow-xs shrink-0 font-mono border-2">
-                    <div className="bg-blue-700 text-[8px] font-black text-white px-2 py-0.5 tracking-widest uppercase flex items-center justify-between">
-                      <span>BRASIL</span>
-                      <span className="text-amber-300 font-extrabold text-[7px]">BR</span>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+            {filtered.map((vehicle) => (
+              <div
+                key={vehicle.id}
+                className="group relative bg-white border border-slate-200/80 rounded-2xl p-5 hover:shadow-md hover:border-amber-400/80 transition-all flex flex-col justify-between gap-4"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    {/* Plate Badge styled like Mercosul plate */}
+                    <div className="inline-flex flex-col border border-slate-900 rounded-lg bg-white min-w-[105px] text-center overflow-hidden shadow-xs shrink-0 font-mono border-2">
+                      <div className="bg-blue-700 text-[8px] font-black text-white px-2 py-0.5 tracking-widest uppercase flex items-center justify-between">
+                        <span>BRASIL</span>
+                        <span className="text-amber-300 font-extrabold text-[7px]">BR</span>
+                      </div>
+                      <span className="text-base font-black text-slate-950 px-3 py-0.5 tracking-wider font-mono">
+                        {vehicle.plate}
+                      </span>
                     </div>
-                    <span className="text-base font-black text-slate-950 px-3 py-0.5 tracking-wider font-mono">
-                      {vehicle.plate}
-                    </span>
+
+                    <button
+                      onClick={() => openEditModal(vehicle)}
+                      className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                      title="Editar veículo"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
                   </div>
 
-                  <button
-                    onClick={() => openEditModal(vehicle)}
-                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
-                    title="Editar veículo"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                </div>
+                  <div className="space-y-2.5">
+                    <div>
+                      <h3 className="font-black text-base text-slate-900 group-hover:text-amber-700 transition-colors leading-snug">
+                        {vehicle.brand} {vehicle.model}
+                      </h3>
+                      {vehicle.year && (
+                        <p className="text-xs text-slate-400 font-bold mt-0.5">Ano Fabricação / Modelo: {vehicle.year}</p>
+                      )}
+                    </div>
 
-                <div className="space-y-2.5">
-                  <div>
-                    <h3 className="font-black text-base text-slate-900 group-hover:text-amber-700 transition-colors leading-snug">
-                      {vehicle.brand} {vehicle.model}
-                    </h3>
-                    {vehicle.year && (
-                      <p className="text-xs text-slate-400 font-bold mt-0.5">Ano Fabricação / Modelo: {vehicle.year}</p>
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                      <User className="w-4 h-4 text-sky-600 shrink-0" />
+                      <span className="truncate">{vehicle.clients?.name ?? 'Sem proprietário'}</span>
+                    </div>
+
+                    {vehicle.notes && (
+                      <div className="flex items-start gap-2 text-xs text-slate-600 bg-amber-50/60 p-2.5 rounded-xl border border-amber-100/80">
+                        <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                        <p className="line-clamp-2 leading-relaxed text-slate-700 font-medium">
+                          {vehicle.notes}
+                        </p>
+                      </div>
                     )}
                   </div>
-
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                    <User className="w-4 h-4 text-sky-600 shrink-0" />
-                    <span className="truncate">{vehicle.clients?.name ?? 'Sem proprietário'}</span>
-                  </div>
-
-                  {vehicle.notes && (
-                    <div className="flex items-start gap-2 text-xs text-slate-600 bg-amber-50/60 p-2.5 rounded-xl border border-amber-100/80">
-                      <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="line-clamp-2 leading-relaxed text-slate-700 font-medium">
-                        {vehicle.notes}
-                      </p>
-                    </div>
-                  )}
                 </div>
               </div>
+            ))}
+          </div>
+
+          {/* Pagination Bar */}
+          {Math.ceil(totalCount / pageSize) > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <p className="text-xs text-slate-500 font-medium">
+                Página <strong className="text-slate-800">{page}</strong> de <strong className="text-slate-800">{Math.ceil(totalCount / pageSize)}</strong> ({totalCount} veículos no total)
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>Anterior</span>
+                </button>
+                <span className="text-xs font-bold px-2 text-slate-600">
+                  {page} / {Math.ceil(totalCount / pageSize)}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
+                  disabled={page >= Math.ceil(totalCount / pageSize)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Próxima</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
 
