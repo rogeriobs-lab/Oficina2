@@ -34,23 +34,32 @@ function MainApp() {
   const [savedViewParams, setSavedViewParams] = useState<Record<string, any>>({});
 
   const saveViewParams = (viewName: string, params: any) => {
+    if (!params) return;
     setSavedViewParams((prev) => ({
       ...prev,
       [viewName]: params,
     }));
   };
 
-  const navigateTo = (viewName: string, params?: any) => {
+  const navigateTo = (viewName: string, params?: any, currentViewSaveParams?: any) => {
+    if (currentViewSaveParams) {
+      saveViewParams(currentView.name, currentViewSaveParams);
+    }
+
     if (params) {
       saveViewParams(viewName, params);
     }
 
-    const targetParams = params ?? savedViewParams[viewName];
+    const targetParams = params ?? (viewName !== currentView.name ? savedViewParams[viewName] : undefined);
 
     setCurrentView((prev) => {
+      const updatedPrev = currentViewSaveParams
+        ? { ...prev, params: currentViewSaveParams }
+        : prev;
+
       // Avoid pushing duplicate consecutive state to history
-      if (prev.name !== viewName || JSON.stringify(prev.params) !== JSON.stringify(targetParams)) {
-        setHistory((h) => [...h, prev]);
+      if (updatedPrev.name !== viewName || JSON.stringify(updatedPrev.params) !== JSON.stringify(targetParams)) {
+        setHistory((h) => [...h, updatedPrev]);
       }
       return { name: viewName, params: targetParams };
     });
@@ -93,7 +102,6 @@ function MainApp() {
           <ClientsView
             onNavigate={navigateTo}
             params={currentView.params ?? savedViewParams['clients']}
-            onSaveParams={(params) => saveViewParams('clients', params)}
           />
         );
       case 'vehicles':
@@ -101,7 +109,6 @@ function MainApp() {
           <VehiclesView
             onNavigate={navigateTo}
             params={currentView.params ?? savedViewParams['vehicles']}
-            onSaveParams={(params) => saveViewParams('vehicles', params)}
           />
         );
       case 'orders':
@@ -109,7 +116,6 @@ function MainApp() {
           <OrdersView
             onNavigate={navigateTo}
             params={currentView.params ?? savedViewParams['orders']}
-            onSaveParams={(params) => saveViewParams('orders', params)}
           />
         );
       case 'import':

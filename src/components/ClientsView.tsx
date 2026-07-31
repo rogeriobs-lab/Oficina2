@@ -5,12 +5,11 @@ import { LoadingState, ErrorState, EmptyState } from './States';
 import { Plus, Search, User, Phone, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
 
 interface ClientsViewProps {
-  onNavigate?: (view: string, params?: any) => void;
+  onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
   params?: any;
-  onSaveParams?: (params: any) => void;
 }
 
-export default function ClientsView({ onNavigate, params, onSaveParams }: ClientsViewProps) {
+export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,12 +28,6 @@ export default function ClientsView({ onNavigate, params, onSaveParams }: Client
       if (params.page !== undefined) setPage(params.page);
     }
   }, [params]);
-
-  useEffect(() => {
-    if (onSaveParams) {
-      onSaveParams({ searchInput, search, page });
-    }
-  }, [searchInput, search, page, onSaveParams]);
 
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
@@ -156,7 +149,7 @@ export default function ClientsView({ onNavigate, params, onSaveParams }: Client
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           {onNavigate && (
             <button
-              onClick={() => onNavigate('import')}
+              onClick={() => onNavigate('import', undefined, { searchInput, search, page })}
               className="inline-flex items-center justify-center p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer border border-emerald-200 shadow-xs"
               title="Importar dados do Access"
             >
@@ -299,7 +292,7 @@ export default function ClientsView({ onNavigate, params, onSaveParams }: Client
 
                       {onNavigate && (
                         <button
-                          onClick={() => onNavigate('orders', { searchInput: client.name, search: client.name, page: 1 })}
+                          onClick={() => onNavigate('orders', { searchInput: client.name, search: client.name, page: 1 }, { searchInput, search, page })}
                           className="w-full mt-2 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                         >
                           <ClipboardList className="w-3.5 h-3.5 text-sky-600" />

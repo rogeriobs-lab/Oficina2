@@ -7,12 +7,11 @@ import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpread
 type VehicleRow = Vehicle & { clients: Pick<Client, 'name'> };
 
 interface VehiclesViewProps {
-  onNavigate?: (view: string, params?: any) => void;
+  onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
   params?: any;
-  onSaveParams?: (params: any) => void;
 }
 
-export default function VehiclesView({ onNavigate, params, onSaveParams }: VehiclesViewProps) {
+export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) {
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,12 +31,6 @@ export default function VehiclesView({ onNavigate, params, onSaveParams }: Vehic
       if (params.page !== undefined) setPage(params.page);
     }
   }, [params]);
-
-  useEffect(() => {
-    if (onSaveParams) {
-      onSaveParams({ searchInput, search, page });
-    }
-  }, [searchInput, search, page, onSaveParams]);
 
   const [formPlate, setFormPlate] = useState('');
   const [formBrand, setFormBrand] = useState('');
@@ -182,7 +175,7 @@ export default function VehiclesView({ onNavigate, params, onSaveParams }: Vehic
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           {onNavigate && (
             <button
-              onClick={() => onNavigate('import')}
+              onClick={() => onNavigate('import', undefined, { searchInput, search, page })}
               className="inline-flex items-center justify-center p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer border border-emerald-200 shadow-xs"
               title="Importar dados do Access"
             >
@@ -313,7 +306,7 @@ export default function VehiclesView({ onNavigate, params, onSaveParams }: Vehic
 
                     {onNavigate && (
                       <button
-                        onClick={() => onNavigate('orders', { searchInput: vehicle.plate, search: vehicle.plate, page: 1 })}
+                        onClick={() => onNavigate('orders', { searchInput: vehicle.plate, search: vehicle.plate, page: 1 }, { searchInput, search, page })}
                         className="w-full mt-2 py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
                       >
                         <ClipboardList className="w-3.5 h-3.5 text-amber-700" />

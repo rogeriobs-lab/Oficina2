@@ -16,12 +16,11 @@ type OrderRow = {
 };
 
 interface OrdersViewProps {
-  onNavigate: (viewName: string, params?: any) => void;
+  onNavigate: (viewName: string, params?: any, currentViewSaveParams?: any) => void;
   params?: any;
-  onSaveParams?: (params: any) => void;
 }
 
-export default function OrdersView({ onNavigate, params, onSaveParams }: OrdersViewProps) {
+export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,12 +39,6 @@ export default function OrdersView({ onNavigate, params, onSaveParams }: OrdersV
       if (params.page !== undefined) setPage(params.page);
     }
   }, [params]);
-
-  useEffect(() => {
-    if (onSaveParams) {
-      onSaveParams({ searchInput, search, statusFilter, page });
-    }
-  }, [searchInput, search, statusFilter, page, onSaveParams]);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -284,14 +277,14 @@ export default function OrdersView({ onNavigate, params, onSaveParams }: OrdersV
         </div>
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
           <button
-            onClick={() => onNavigate('import')}
+            onClick={() => onNavigate('import', undefined, { searchInput, search, statusFilter, page })}
             className="inline-flex items-center justify-center p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer border border-emerald-200 shadow-xs"
             title="Importar Serviços do Access"
           >
             <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
           </button>
           <button
-            onClick={() => onNavigate('order-new')}
+            onClick={() => onNavigate('order-new', undefined, { searchInput, search, statusFilter, page })}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-white text-xs sm:text-sm rounded-xl font-bold shadow-md hover:opacity-90 transition-all cursor-pointer"
             style={{ backgroundColor: theme.accent }}
           >
@@ -386,7 +379,7 @@ export default function OrdersView({ onNavigate, params, onSaveParams }: OrdersV
               return (
                 <div
                   key={order.id}
-                  onClick={() => onNavigate('order-details', { id: order.id })}
+                  onClick={() => onNavigate('order-details', { id: order.id }, { searchInput, search, statusFilter, page })}
                   className="group bg-white border border-slate-200/80 rounded-2xl p-5 hover:shadow-md hover:border-sky-300/80 transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4"
                 >
                   <div className="flex items-start gap-4 flex-1 min-w-0">
