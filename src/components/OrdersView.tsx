@@ -38,26 +38,56 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
       const to = page * pageSize - 1;
 
       const sTerm = search.trim();
-      const sAlpha = sTerm.replace(/[^A-Za-z0-9]/g, '');
+      const cleanTerm = sTerm.replace(/[,()]/g, '');
+      const sAlpha = cleanTerm.replace(/[^A-Za-z0-9]/g, '');
 
       let matchingVehicleIds: string[] = [];
       let matchingClientIds: string[] = [];
       let isFiltering = false;
 
-      if (sTerm) {
+      if (cleanTerm) {
         isFiltering = true;
-        // Lookup matching vehicles (by plate, brand, model)
-        const plateOr = sAlpha && sAlpha !== sTerm
-          ? `plate.ilike.%${sTerm}%,plate.ilike.%${sAlpha}%,brand.ilike.%${sTerm}%,model.ilike.%${sTerm}%`
-          : `plate.ilike.%${sTerm}%,brand.ilike.%${sTerm}%,model.ilike.%${sTerm}%`;
 
-        const [vMatch, cMatch] = await Promise.all([
-          supabase.from('vehicles').select('id').or(plateOr).limit(500),
-          supabase.from('clients').select('id').ilike('name', `%${sTerm}%`).limit(500),
-        ]);
+        let vRes = await supabase
+          .from('vehicles')
+          .select('id')
+          .or(`plate.ilike.%${cleanTerm}%,brand.ilike.%${cleanTerm}%,model.ilike.%${cleanTerm}%`)
+          .limit(50);
 
-        if (vMatch.data) matchingVehicleIds = vMatch.data.map((v) => v.id);
-        if (cMatch.data) matchingClientIds = cMatch.data.map((c) => c.id);
+        if (vRes.error && sAlpha) {
+          vRes = await supabase
+            .from('vehicles')
+            .select('id')
+            .ilike('plate', `%${sAlpha}%`)
+            .limit(50);
+        }
+
+        if (vRes.data) {
+          matchingVehicleIds = vRes.data.map((v) => v.id);
+        }
+
+        if (sAlpha && sAlpha !== cleanTerm && matchingVehicleIds.length < 50) {
+          const alphaRes = await supabase
+            .from('vehicles')
+            .select('id')
+            .ilike('plate', `%${sAlpha}%`)
+            .limit(50);
+
+          if (alphaRes.data) {
+            const extraIds = alphaRes.data.map((v) => v.id);
+            matchingVehicleIds = Array.from(new Set([...matchingVehicleIds, ...extraIds])).slice(0, 50);
+          }
+        }
+
+        const cRes = await supabase
+          .from('clients')
+          .select('id')
+          .ilike('name', `%${cleanTerm}%`)
+          .limit(50);
+
+        if (cRes.data) {
+          matchingClientIds = cRes.data.map((c) => c.id);
+        }
 
         if (matchingVehicleIds.length === 0 && matchingClientIds.length === 0) {
           setOrders([]);
@@ -81,15 +111,12 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
       }
 
       if (isFiltering) {
-        const conditions: string[] = [];
-        if (matchingVehicleIds.length > 0) {
-          conditions.push(`vehicle_id.in.(${matchingVehicleIds.join(',')})`);
-        }
-        if (matchingClientIds.length > 0) {
-          conditions.push(`client_id.in.(${matchingClientIds.join(',')})`);
-        }
-        if (conditions.length > 0) {
-          query = query.or(conditions.join(','));
+        if (matchingVehicleIds.length > 0 && matchingClientIds.length > 0) {
+          query = query.or(`vehicle_id.in.(${matchingVehicleIds.join(',')}),client_id.in.(${matchingClientIds.join(',')})`);
+        } else if (matchingVehicleIds.length > 0) {
+          query = query.in('vehicle_id', matchingVehicleIds);
+        } else if (matchingClientIds.length > 0) {
+          query = query.in('client_id', matchingClientIds);
         }
       }
 
@@ -111,10 +138,13 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
         }
 
         if (isFiltering) {
-          const conditions: string[] = [];
-          if (matchingVehicleIds.length > 0) conditions.push(`vehicle_id.in.(${matchingVehicleIds.join(',')})`);
-          if (matchingClientIds.length > 0) conditions.push(`client_id.in.(${matchingClientIds.join(',')})`);
-          if (conditions.length > 0) fallbackQ = fallbackQ.or(conditions.join(','));
+          if (matchingVehicleIds.length > 0 && matchingClientIds.length > 0) {
+            fallbackQ = fallbackQ.or(`vehicle_id.in.(${matchingVehicleIds.join(',')}),client_id.in.(${matchingClientIds.join(',')})`);
+          } else if (matchingVehicleIds.length > 0) {
+            fallbackQ = fallbackQ.in('vehicle_id', matchingVehicleIds);
+          } else if (matchingClientIds.length > 0) {
+            fallbackQ = fallbackQ.in('client_id', matchingClientIds);
+          }
         }
 
         const { data: fbData, error: fbErr, count: fbCount } = await fallbackQ.range(from, to);
