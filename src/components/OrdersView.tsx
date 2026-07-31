@@ -37,10 +37,40 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
       const from = (page - 1) * pageSize;
       const to = page * pageSize - 1;
 
+      const sTerm = search.trim();
+      const sAlpha = sTerm.replace(/[^A-Za-z0-9]/g, '');
+
+      let matchingVehicleIds: string[] = [];
+      let matchingClientIds: string[] = [];
+      let isFiltering = false;
+
+      if (sTerm) {
+        isFiltering = true;
+        // Lookup matching vehicles (by plate, brand, model)
+        const plateOr = sAlpha && sAlpha !== sTerm
+          ? `plate.ilike.%${sTerm}%,plate.ilike.%${sAlpha}%,brand.ilike.%${sTerm}%,model.ilike.%${sTerm}%`
+          : `plate.ilike.%${sTerm}%,brand.ilike.%${sTerm}%,model.ilike.%${sTerm}%`;
+
+        const [vMatch, cMatch] = await Promise.all([
+          supabase.from('vehicles').select('id').or(plateOr).limit(500),
+          supabase.from('clients').select('id').ilike('name', `%${sTerm}%`).limit(500),
+        ]);
+
+        if (vMatch.data) matchingVehicleIds = vMatch.data.map((v) => v.id);
+        if (cMatch.data) matchingClientIds = cMatch.data.map((c) => c.id);
+
+        if (matchingVehicleIds.length === 0 && matchingClientIds.length === 0) {
+          setOrders([]);
+          setTotalCount(0);
+          setLoading(false);
+          return;
+        }
+      }
+
       let rawData: any[] = [];
       let totalResCount = 0;
 
-      // Try joined query first (without order_items 1-to-many aggregate)
+      // Try joined query first
       let query = supabase
         .from('service_orders')
         .select('id, order_date, mileage, status, client_id, vehicle_id, clients(name), vehicles(plate, brand, model, year)', { count: 'estimated' })
@@ -48,6 +78,19 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
 
       if (statusFilter !== 'todas') {
         query = query.eq('status', statusFilter);
+      }
+
+      if (isFiltering) {
+        const conditions: string[] = [];
+        if (matchingVehicleIds.length > 0) {
+          conditions.push(`vehicle_id.in.(${matchingVehicleIds.join(',')})`);
+        }
+        if (matchingClientIds.length > 0) {
+          conditions.push(`client_id.in.(${matchingClientIds.join(',')})`);
+        }
+        if (conditions.length > 0) {
+          query = query.or(conditions.join(','));
+        }
       }
 
       const { data, error: primaryErr, count } = await query.range(from, to);
@@ -65,6 +108,13 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
 
         if (statusFilter !== 'todas') {
           fallbackQ = fallbackQ.eq('status', statusFilter);
+        }
+
+        if (isFiltering) {
+          const conditions: string[] = [];
+          if (matchingVehicleIds.length > 0) conditions.push(`vehicle_id.in.(${matchingVehicleIds.join(',')})`);
+          if (matchingClientIds.length > 0) conditions.push(`client_id.in.(${matchingClientIds.join(',')})`);
+          if (conditions.length > 0) fallbackQ = fallbackQ.or(conditions.join(','));
         }
 
         const { data: fbData, error: fbErr, count: fbCount } = await fallbackQ.range(from, to);
@@ -132,7 +182,7 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, search]);
 
   useEffect(() => {
     loadOrders();
@@ -141,10 +191,22 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   const filtered = orders.filter((o) => {
+    if (!search.trim()) {
+      return statusFilter === 'todas' || o.status === statusFilter;
+    }
+    const cleanS = search.trim().toLowerCase();
+    const cleanSAlpha = cleanS.replace(/[^a-z0-9]/g, '');
+
+    const plateNorm = (o.vehicles?.plate || '').toLowerCase();
+    const plateAlpha = plateNorm.replace(/[^a-z0-9]/g, '');
+
     const matchSearch =
-      o.clients?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      o.vehicles?.plate?.toLowerCase().includes(search.toLowerCase()) ||
-      o.vehicles?.model?.toLowerCase().includes(search.toLowerCase());
+      o.clients?.name?.toLowerCase().includes(cleanS) ||
+      plateNorm.includes(cleanS) ||
+      (cleanSAlpha.length > 0 && plateAlpha.includes(cleanSAlpha)) ||
+      o.vehicles?.model?.toLowerCase().includes(cleanS) ||
+      o.vehicles?.brand?.toLowerCase().includes(cleanS);
+
     const matchStatus = statusFilter === 'todas' || o.status === statusFilter;
     return matchSearch && matchStatus;
   });

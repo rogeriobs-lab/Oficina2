@@ -656,6 +656,20 @@ export default function ImportView() {
           }
 
           let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
+
+          // If not found in local map, check database directly (handles DB with >1000 vehicles)
+          if (!vehicleInfo) {
+            const plateCond = plateAlpha && plateAlpha !== plateClean
+              ? `plate.eq.${plateClean},plate.eq.${plateAlpha}`
+              : `plate.eq.${plateClean}`;
+            const { data: dbV } = await supabase.from('vehicles').select('id, client_id, plate').or(plateCond).limit(1);
+            if (dbV && dbV.length > 0) {
+              vehicleInfo = { id: dbV[0].id, client_id: dbV[0].client_id };
+              vehiclesMap.set(plateClean, vehicleInfo);
+              if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
+            }
+          }
+
           if (!vehicleInfo) {
             try {
               let targetClientId = rowClientId;
