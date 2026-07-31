@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase, clearAllDatabaseData, type Client, type Vehicle } from '../lib/supabase';
+import { supabase, clearAllDatabaseData, consolidateDuplicateOrders, type Client, type Vehicle } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import {
   Upload,
@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Trash2,
   X,
+  Layers,
 } from 'lucide-react';
 
 type ImportType = 'clients' | 'vehicles' | 'orders';
@@ -28,6 +29,71 @@ interface ColumnMapping {
   required: boolean;
   mappedIndex: number; // -1 means not mapped
 }
+
+// Helper to format error messages from Supabase or standard Error objects
+const formatErrorMessage = (err: any): string => {
+  if (!err) return 'Erro desconhecido';
+  if (typeof err === 'string') return err;
+  if (err.message && typeof err.message === 'string') return err.message;
+  if (err.details && typeof err.details === 'string') return err.details;
+  if (err.error_description && typeof err.error_description === 'string') return err.error_description;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+};
+
+// Helper to parse dates from various spreadsheet formats (Excel serial number, DD/MM/YYYY, YYYY-MM-DD, etc.)
+const parseImportDate = (dateRaw: any): string => {
+  if (!dateRaw) return new Date().toISOString().split('T')[0];
+  const str = String(dateRaw).trim();
+  if (!str) return new Date().toISOString().split('T')[0];
+
+  // Excel serial number check (e.g. 43461 or "43461")
+  const num = Number(str);
+  if (!isNaN(num) && num > 10000 && num < 100000) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    const msPerDay = 86400000;
+    const dateObj = new Date(excelEpoch + num * msPerDay);
+    if (!isNaN(dateObj.getTime())) {
+      return dateObj.toISOString().split('T')[0];
+    }
+  }
+
+  // YYYY-MM-DD format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+
+  // Clean separators like 27/12/2018 or 27.12.2018 or 27-12-2018
+  const cleanD = str.replace(/[.\-\s]/g, '/');
+  const parts = cleanD.split('/').filter(Boolean);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      const year = parts[0];
+      const month = parts[1].padStart(2, '0');
+      const day = parts[2].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    } else {
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      let year = parts[2];
+      if (year.length === 2) {
+        year = Number(year) > 50 ? `19${year}` : `20${year}`;
+      }
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // Fallback JS Date parse
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+
+  return new Date().toISOString().split('T')[0];
+};
 
 export default function ImportView() {
   const [importType, setImportType] = useState<ImportType>('clients');
@@ -43,6 +109,9 @@ export default function ImportView() {
     errors: string[];
   } | null>(null);
 
+  const [groupingStrategy, setGroupingStrategy] = useState<'plate_date' | 'order_number' | 'plate_date_client' | 'none'>('plate_date');
+  const [consolidating, setConsolidating] = useState(false);
+
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearNotice, setClearNotice] = useState<string | null>(null);
@@ -56,6 +125,17 @@ export default function ImportView() {
       setClearNotice('Todos os dados de clientes, veículos e serviços foram apagados do banco.');
     } else {
       setClearNotice(`Falha ao apagar: ${result.message}`);
+    }
+  };
+
+  const handleConsolidateOrders = async () => {
+    setConsolidating(true);
+    const result = await consolidateDuplicateOrders();
+    setConsolidating(false);
+    if (result.success) {
+      setClearNotice(result.message);
+    } else {
+      setClearNotice(`Falha ao agrupar O.S.: ${result.message}`);
     }
   };
 
@@ -434,7 +514,7 @@ export default function ImportView() {
             }
           } catch (err) {
             failedCount++;
-            errors.push(`Erro ao importar "${trimmedName}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+            errors.push(`Erro ao importar "${trimmedName}": ${formatErrorMessage(err)}`);
           }
         }
       } else if (importType === 'vehicles') {
@@ -589,7 +669,7 @@ export default function ImportView() {
             }
           } catch (err) {
             failedCount++;
-            errors.push(`Erro ao importar veículo "${formattedPlate}": ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+            errors.push(`Erro ao importar veículo "${formattedPlate}": ${formatErrorMessage(err)}`);
           }
         }
       } else {
@@ -653,22 +733,7 @@ export default function ImportView() {
           }
 
           const plateClean = plateRaw.trim().toUpperCase();
-
-          let orderDate = new Date().toISOString().split('T')[0];
-          if (dateRaw && dateRaw.trim()) {
-            const cleanD = dateRaw.trim();
-            if (cleanD.includes('/')) {
-              const parts = cleanD.split('/');
-              if (parts.length === 3) {
-                const day = parts[0].padStart(2, '0');
-                const month = parts[1].padStart(2, '0');
-                const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
-                orderDate = `${year}-${month}-${day}`;
-              }
-            } else if (cleanD.length === 10) {
-              orderDate = cleanD;
-            }
-          }
+          const orderDate = parseImportDate(dateRaw);
 
           let price = 0;
           if (priceRaw) {
@@ -693,10 +758,19 @@ export default function ImportView() {
 
           const orderNumClean = orderNumberRaw ? orderNumberRaw.trim() : '';
 
-          // Key by OS Number if available, else by Plate + Date
-          const groupKey = orderNumClean
-            ? `OS_${plateClean}_${orderNumClean}`
-            : `DATE_${plateClean}_${orderDate}`;
+          // Determine grouping key based on selected strategy
+          let groupKey = '';
+          if (groupingStrategy === 'plate_date') {
+            groupKey = `DATE_${plateClean}_${orderDate}`;
+          } else if (groupingStrategy === 'order_number' && orderNumClean) {
+            groupKey = `OS_${plateClean}_${orderNumClean}`;
+          } else if (groupingStrategy === 'plate_date_client') {
+            const clientNorm = clientIdentRaw ? normalizeKey(clientIdentRaw) : '';
+            groupKey = `PDC_${plateClean}_${orderDate}_${clientNorm}`;
+          } else {
+            // 'none' or fallback
+            groupKey = `ROW_${i}_${plateClean}_${Math.random()}`;
+          }
 
           if (!osGroupsMap.has(groupKey)) {
             osGroupsMap.set(groupKey, {
@@ -762,6 +836,33 @@ export default function ImportView() {
             }
           }
 
+          // Ensure targetClientId is available as a fallback
+          let targetClientId = rowClientId;
+          if (!targetClientId) {
+            try {
+              const fallbackName = `Cliente Placa ${plateClean}`;
+              const normFb = normalizeKey(fallbackName);
+              if (clientsMap.has(normFb)) {
+                targetClientId = clientsMap.get(normFb)!;
+              } else {
+                const { data: newC } = await supabase
+                  .from('clients')
+                  .insert({
+                    name: fallbackName,
+                    notes: 'Cadastrado automaticamente durante a importação de O.S.',
+                  })
+                  .select('id')
+                  .single();
+                if (newC?.id) {
+                  targetClientId = newC.id;
+                  clientsMap.set(normFb, targetClientId);
+                }
+              }
+            } catch (cErr) {
+              console.warn('Erro ao criar cliente fallback:', cErr);
+            }
+          }
+
           let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
 
           if (!vehicleInfo) {
@@ -778,19 +879,6 @@ export default function ImportView() {
 
           if (!vehicleInfo) {
             try {
-              let targetClientId = rowClientId;
-              if (!targetClientId) {
-                const { data: newC } = await supabase
-                  .from('clients')
-                  .insert({
-                    name: `Cliente Placa ${plateClean}`,
-                    notes: 'Cadastrado automaticamente durante a importação de O.S.',
-                  })
-                  .select('id')
-                  .single();
-                if (newC) targetClientId = newC.id;
-              }
-
               const { data: newV, error: vErr } = await supabase
                 .from('vehicles')
                 .insert({
@@ -805,7 +893,7 @@ export default function ImportView() {
 
               if (vErr) throw vErr;
               if (newV && newV.id) {
-                vehicleInfo = { id: newV.id, client_id: newV.client_id };
+                vehicleInfo = { id: newV.id, client_id: newV.client_id || targetClientId };
                 vehiclesMap.set(plateClean, vehicleInfo);
                 if (plateAlpha) vehiclesMap.set(plateAlpha, vehicleInfo);
               } else {
@@ -813,17 +901,32 @@ export default function ImportView() {
               }
             } catch (vErr) {
               failedCount++;
-              errors.push(`O.S. Placa ${plateClean} (${group.orderDate}): Não foi possível localizar ou cadastrar o veículo.`);
+              errors.push(`O.S. Placa ${plateClean} (${group.orderDate}): Não foi possível localizar ou cadastrar o veículo: ${formatErrorMessage(vErr)}`);
               continue;
+            }
+          } else if (!vehicleInfo.client_id && targetClientId) {
+            // Vehicle exists but client_id was missing/null!
+            try {
+              await supabase.from('vehicles').update({ client_id: targetClientId }).eq('id', vehicleInfo.id);
+              vehicleInfo.client_id = targetClientId;
+              vehiclesMap.set(plateClean, vehicleInfo);
+            } catch (uErr) {
+              console.warn('Erro ao atualizar client_id do veículo:', uErr);
             }
           }
 
+          const finalClientId = vehicleInfo.client_id || targetClientId;
+
           try {
+            if (!finalClientId) {
+              throw new Error(`Não foi possível determinar o proprietário (client_id) do veículo ${plateClean}`);
+            }
+
             const { data: newOrder, error: orderErr } = await supabase
               .from('service_orders')
               .insert({
                 vehicle_id: vehicleInfo.id,
-                client_id: vehicleInfo.client_id,
+                client_id: finalClientId,
                 order_date: group.orderDate,
                 mileage: group.mileage,
                 status: group.status,
@@ -866,7 +969,7 @@ export default function ImportView() {
             successCount++;
           } catch (err) {
             failedCount++;
-            errors.push(`Erro ao importar O.S. para "${plateClean}" (${group.orderDate}): ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+            errors.push(`Erro ao importar O.S. para "${plateClean}" (${group.orderDate}): ${formatErrorMessage(err)}`);
           }
         }
       }
@@ -879,7 +982,7 @@ export default function ImportView() {
       setStep(4);
     } catch (err) {
       console.error(err);
-      errors.push(`Erro crítico na importação: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+      errors.push(`Erro crítico na importação: ${formatErrorMessage(err)}`);
       setImportResult({ successCount, failedCount, errors });
       setStep(4);
     } finally {
@@ -1017,8 +1120,41 @@ export default function ImportView() {
               </button>
             </div>
 
-            {/* Clear Database Card / Option */}
-            <div className="max-w-4xl mx-auto pt-4 border-t border-slate-100">
+            {/* Database Management Tools */}
+            <div className="max-w-4xl mx-auto pt-4 border-t border-slate-100 space-y-3">
+              {/* Consolidate Duplicate Orders Card */}
+              <div className="bg-sky-50/60 border border-sky-100 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-sky-950">Agrupar O.S. Duplicadas Existentes no Banco</h4>
+                    <p className="text-xs text-sky-700/80 mt-0.5">
+                      Já importou os dados e ficou com várias O.S. para o mesmo veículo na mesma data? Clique para agrupar tudo em ordens únicas com seus respectivos itens.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleConsolidateOrders}
+                  disabled={consolidating}
+                  className="w-full sm:w-auto px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 flex-shrink-0 cursor-pointer"
+                >
+                  {consolidating ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Agrupando O.S...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Layers className="w-4 h-4" />
+                      <span>Agrupar O.S. Existentes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Clear Database Card / Option */}
               <div className="bg-rose-50/60 border border-rose-100 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -1031,7 +1167,7 @@ export default function ImportView() {
                 </div>
                 <button
                   onClick={() => setShowClearModal(true)}
-                  className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 flex-shrink-0 cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>Apagar Todos os Dados</span>
@@ -1238,6 +1374,100 @@ export default function ImportView() {
                 </p>
               </div>
             </div>
+
+            {/* Grouping Strategy Option for Service Orders */}
+            {importType === 'orders' && (
+              <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-amber-950 font-extrabold text-xs">
+                  <ClipboardList className="w-4 h-4 text-amber-600" />
+                  <span>Como agrupar as linhas da planilha em Ordens de Serviço?</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Planilhas costumam ter 1 linha para cada peça ou serviço. Escolha o critério para agrupar as linhas em uma mesma O.S.:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <label className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    groupingStrategy === 'plate_date'
+                      ? 'bg-white border-amber-500 shadow-xs text-slate-900 font-bold'
+                      : 'bg-amber-50/40 border-amber-200 text-slate-700 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="groupingStrategy"
+                      checked={groupingStrategy === 'plate_date'}
+                      onChange={() => setGroupingStrategy('plate_date')}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <div className="font-extrabold text-slate-900">Por Placa e Data (Recomendado)</div>
+                      <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                        Junta todas as peças e serviços do mesmo veículo na mesma data em 1 única O.S.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    groupingStrategy === 'order_number'
+                      ? 'bg-white border-amber-500 shadow-xs text-slate-900 font-bold'
+                      : 'bg-amber-50/40 border-amber-200 text-slate-700 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="groupingStrategy"
+                      checked={groupingStrategy === 'order_number'}
+                      onChange={() => setGroupingStrategy('order_number')}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <div className="font-extrabold text-slate-900">Por Número / Código da O.S.</div>
+                      <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                        Agrupa linhas que possuam o mesmo número de O.S. informado na planilha.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    groupingStrategy === 'plate_date_client'
+                      ? 'bg-white border-amber-500 shadow-xs text-slate-900 font-bold'
+                      : 'bg-amber-50/40 border-amber-200 text-slate-700 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="groupingStrategy"
+                      checked={groupingStrategy === 'plate_date_client'}
+                      onChange={() => setGroupingStrategy('plate_date_client')}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <div className="font-extrabold text-slate-900">Por Placa, Data e Cliente</div>
+                      <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                        Agrupa somente se a placa, a data e o proprietário forem idênticos.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-2.5 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                    groupingStrategy === 'none'
+                      ? 'bg-white border-amber-500 shadow-xs text-slate-900 font-bold'
+                      : 'bg-amber-50/40 border-amber-200 text-slate-700 hover:bg-white'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="groupingStrategy"
+                      checked={groupingStrategy === 'none'}
+                      onChange={() => setGroupingStrategy('none')}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                    />
+                    <div>
+                      <div className="font-extrabold text-slate-900">Não Agrupar</div>
+                      <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                        Cada linha da planilha criará 1 O.S. individual no sistema.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Warning if required mappings are missing */}
             {mappings.some((m) => m.required && m.mappedIndex === -1) && (

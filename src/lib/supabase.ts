@@ -798,3 +798,84 @@ export const clearAllDatabaseData = async (): Promise<{ success: boolean; messag
     };
   }
 };
+
+export const consolidateDuplicateOrders = async (): Promise<{ success: boolean; mergedCount: number; message: string }> => {
+  try {
+    const { data: allOrders, error: fetchErr } = await supabase
+      .from('service_orders')
+      .select('id, vehicle_id, order_date, mileage, status, notes')
+      .order('created_at', { ascending: true });
+
+    if (fetchErr) throw fetchErr;
+    if (!allOrders || allOrders.length === 0) {
+      return { success: true, mergedCount: 0, message: 'Nenhuma ordem de serviço encontrada no banco de dados.' };
+    }
+
+    const groups = new Map<string, typeof allOrders>();
+    for (const order of allOrders) {
+      if (!order.vehicle_id || !order.order_date) continue;
+      const key = `${order.vehicle_id}_${order.order_date}`;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key)!.push(order);
+    }
+
+    let mergedCount = 0;
+
+    for (const [_, ordersList] of groups.entries()) {
+      if (ordersList.length <= 1) continue;
+
+      const primaryOrder = ordersList[0];
+      const duplicateOrderIds = ordersList.slice(1).map((o) => o.id);
+
+      const { error: moveErr } = await supabase
+        .from('order_items')
+        .update({ order_id: primaryOrder.id })
+        .in('order_id', duplicateOrderIds);
+
+      if (moveErr) {
+        console.error('Erro ao reatribuir itens de serviço:', moveErr);
+        continue;
+      }
+
+      const maxMileage = ordersList.reduce<number | null>((acc, o) => {
+        if (o.mileage !== null && (acc === null || o.mileage > acc)) return o.mileage;
+        return acc;
+      }, primaryOrder.mileage);
+
+      if (maxMileage !== primaryOrder.mileage) {
+        await supabase
+          .from('service_orders')
+          .update({ mileage: maxMileage })
+          .eq('id', primaryOrder.id);
+      }
+
+      const { error: delErr } = await supabase
+        .from('service_orders')
+        .delete()
+        .in('id', duplicateOrderIds);
+
+      if (delErr) {
+        console.error('Erro ao apagar ordens duplicadas:', delErr);
+      } else {
+        mergedCount += duplicateOrderIds.length;
+      }
+    }
+
+    return {
+      success: true,
+      mergedCount,
+      message: mergedCount > 0
+        ? `${mergedCount} ordens de serviço duplicadas foram agrupadas e consolidadas com sucesso!`
+        : 'Nenhuma ordem de serviço duplicada (mesmo veículo e mesma data) foi encontrada.',
+    };
+  } catch (err) {
+    console.error('Erro ao consolidar O.S.:', err);
+    return {
+      success: false,
+      mergedCount: 0,
+      message: `Erro ao agrupar O.S.: ${err instanceof Error ? err.message : 'Erro desconhecido'}`,
+    };
+  }
+};
