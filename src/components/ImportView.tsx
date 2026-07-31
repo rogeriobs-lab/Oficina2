@@ -79,6 +79,7 @@ export default function ImportView() {
     } else {
       return [
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
+        { dbField: 'client_identifier', label: 'Proprietário / Cliente (Opcional)', required: false, mappedIndex: -1 },
         { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
         { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: false, mappedIndex: -1 },
         { dbField: 'item_type', label: 'Ref / Tipo (PÇ = Peça, MO = Mão de Obra)', required: false, mappedIndex: -1 },
@@ -593,12 +594,20 @@ export default function ImportView() {
           }
         });
 
-        const { data: existingClients } = await supabase.from('clients').select('id').limit(1);
-        let defaultClientId = existingClients && existingClients.length > 0 ? existingClients[0].id : '';
+        const { data: existingClients } = await supabase.from('clients').select('id, name, phone');
+        const clientsMap = new Map<string, string>();
+        (existingClients || []).forEach((c: any) => {
+          if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
+          if (c.phone) {
+            const cleanP = c.phone.replace(/\D/g, '');
+            if (cleanP) clientsMap.set(cleanP, c.id);
+          }
+        });
 
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
           const plateRaw = getMappedValue(row, 'plate');
+          const clientIdentRaw = getMappedValue(row, 'client_identifier');
           const dateRaw = getMappedValue(row, 'order_date');
           const serviceDesc = getMappedValue(row, 'service_description');
           const priceRaw = getMappedValue(row, 'price');
@@ -614,19 +623,53 @@ export default function ImportView() {
           const plateClean = plateRaw.trim().toUpperCase();
           const plateAlpha = plateClean.replace(/[^A-Z0-9]/g, '');
 
+          // Try to resolve client if specified in O.S. row
+          let rowClientId = '';
+          if (clientIdentRaw && clientIdentRaw.trim()) {
+            const rawIdent = clientIdentRaw.trim();
+            const normIdent = normalizeKey(rawIdent);
+            const cleanIdentPhone = rawIdent.replace(/\D/g, '');
+
+            if (clientsMap.has(normIdent)) {
+              rowClientId = clientsMap.get(normIdent)!;
+            } else if (cleanIdentPhone && clientsMap.has(cleanIdentPhone)) {
+              rowClientId = clientsMap.get(cleanIdentPhone)!;
+            } else {
+              // Create client for this specific name/phone
+              try {
+                const isPhoneLike = cleanIdentPhone.length >= 8 && /^\+?[\d\s\-\(\)]+$/.test(rawIdent);
+                const newClientPayload = {
+                  name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
+                  phone: isPhoneLike ? rawIdent : null,
+                  notes: 'Cadastrado automaticamente via importador de O.S.',
+                };
+                const { data: newC } = await supabase.from('clients').insert(newClientPayload).select('id').single();
+                if (newC?.id) {
+                  rowClientId = newC.id;
+                  clientsMap.set(normIdent, rowClientId);
+                  if (cleanIdentPhone) clientsMap.set(cleanIdentPhone, rowClientId);
+                }
+              } catch (cErr) {
+                console.warn('Erro ao criar cliente para O.S.:', cErr);
+              }
+            }
+          }
+
           let vehicleInfo = vehiclesMap.get(plateClean) || (plateAlpha ? vehiclesMap.get(plateAlpha) : undefined);
           if (!vehicleInfo) {
             try {
-              if (!defaultClientId) {
+              let targetClientId = rowClientId;
+              if (!targetClientId) {
+                // Create a specific client for this plate instead of using Reginaldo
                 const { data: newC } = await supabase
                   .from('clients')
                   .insert({
-                    name: 'Cliente Importado',
-                    notes: 'Criado via importação de ordens de serviço',
+                    name: `Cliente Placa ${plateClean}`,
+                    notes: 'Cadastrado automaticamente durante a importação de O.S.',
                   })
                   .select('id')
                   .single();
-                if (newC) defaultClientId = newC.id;
+                if (newC) targetClientId = newC.id;
               }
 
               const { data: newV, error: vErr } = await supabase
@@ -635,7 +678,7 @@ export default function ImportView() {
                   plate: plateClean,
                   brand: 'Veículo',
                   model: 'Importado',
-                  client_id: defaultClientId,
+                  client_id: targetClientId || null,
                   notes: 'Cadastrado automaticamente via importador de O.S.',
                 })
                 .select('id, client_id')
