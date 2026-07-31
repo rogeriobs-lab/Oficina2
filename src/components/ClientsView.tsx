@@ -2,23 +2,39 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, type Client } from '@/src/lib/supabase';
 import { theme, formatPhone } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, User, Phone, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, User, Phone, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
 
 interface ClientsViewProps {
-  onNavigate?: (view: string) => void;
+  onNavigate?: (view: string, params?: any) => void;
+  params?: any;
+  onSaveParams?: (params: any) => void;
 }
 
-export default function ClientsView({ onNavigate }: ClientsViewProps) {
+export default function ClientsView({ onNavigate, params, onSaveParams }: ClientsViewProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState(params?.searchInput ?? params?.search ?? '');
+  const [search, setSearch] = useState(params?.search ?? params?.searchInput ?? '');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(params?.page ?? 1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 50;
+
+  useEffect(() => {
+    if (params) {
+      if (params.searchInput !== undefined) setSearchInput(params.searchInput);
+      if (params.search !== undefined) setSearch(params.search);
+      if (params.page !== undefined) setPage(params.page);
+    }
+  }, [params]);
+
+  useEffect(() => {
+    if (onSaveParams) {
+      onSaveParams({ searchInput, search, page });
+    }
+  }, [searchInput, search, page, onSaveParams]);
 
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
@@ -279,6 +295,16 @@ export default function ClientsView({ onNavigate }: ClientsViewProps) {
                             {client.notes}
                           </p>
                         </div>
+                      )}
+
+                      {onNavigate && (
+                        <button
+                          onClick={() => onNavigate('orders', { searchInput: client.name, search: client.name, page: 1 })}
+                          className="w-full mt-2 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <ClipboardList className="w-3.5 h-3.5 text-sky-600" />
+                          <span>Ver Serviços deste Cliente</span>
+                        </button>
                       )}
                     </div>
                   </div>

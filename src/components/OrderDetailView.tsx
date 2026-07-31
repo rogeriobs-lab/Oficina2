@@ -37,9 +37,10 @@ type OrderDetail = {
 interface OrderDetailViewProps {
   orderId: string;
   onBack: () => void;
+  onNavigate?: (view: string, params?: any) => void;
 }
 
-export default function OrderDetailView({ orderId, onBack }: OrderDetailViewProps) {
+export default function OrderDetailView({ orderId, onBack, onNavigate }: OrderDetailViewProps) {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [orderNumber, setOrderNumber] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -337,34 +338,54 @@ export default function OrderDetailView({ orderId, onBack }: OrderDetailViewProp
       {/* Info Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Client Box */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-xs space-y-3">
-          <div className="flex items-center gap-2 text-slate-400 font-semibold text-xs uppercase tracking-wider">
-            <User className="w-4 h-4" />
-            <span>Cliente</span>
-          </div>
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-xs space-y-3 flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-slate-900">{order.clients?.name ?? '—'}</h3>
-            {order.clients?.phone && (
-              <p className="text-sm text-slate-500 mt-1 font-medium">{formatPhone(order.clients.phone)}</p>
-            )}
+            <div className="flex items-center gap-2 text-slate-400 font-semibold text-xs uppercase tracking-wider mb-2">
+              <User className="w-4 h-4" />
+              <span>Cliente</span>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">{order.clients?.name ?? '—'}</h3>
+              {order.clients?.phone && (
+                <p className="text-sm text-slate-500 mt-1 font-medium">{formatPhone(order.clients.phone)}</p>
+              )}
+            </div>
           </div>
+          {onNavigate && order.clients?.name && (
+            <button
+              onClick={() => onNavigate('orders', { searchInput: order.clients.name, search: order.clients.name, page: 1 })}
+              className="text-xs font-extrabold text-sky-700 hover:text-sky-900 hover:underline inline-flex items-center gap-1 transition-all cursor-pointer pt-2"
+            >
+              <span>Ver todos os serviços do cliente →</span>
+            </button>
+          )}
         </div>
 
         {/* Vehicle Box */}
-        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-xs space-y-3">
-          <div className="flex items-center gap-2 text-slate-400 font-semibold text-xs uppercase tracking-wider">
-            <Car className="w-4 h-4" />
-            <span>Veículo</span>
-          </div>
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-xs space-y-3 flex flex-col justify-between">
           <div>
-            <h3 className="font-bold text-slate-900">
-              {order.vehicles?.brand} {order.vehicles?.model}
-              {order.vehicles?.year ? ` (${order.vehicles.year})` : ''}
-            </h3>
-            <span className="inline-block mt-1 text-xs font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono border border-slate-200">
-              {order.vehicles?.plate}
-            </span>
+            <div className="flex items-center gap-2 text-slate-400 font-semibold text-xs uppercase tracking-wider mb-2">
+              <Car className="w-4 h-4" />
+              <span>Veículo</span>
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900">
+                {order.vehicles?.brand} {order.vehicles?.model}
+                {order.vehicles?.year ? ` (${order.vehicles.year})` : ''}
+              </h3>
+              <span className="inline-block mt-1 text-xs font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono border border-slate-200">
+                {order.vehicles?.plate ?? '—'}
+              </span>
+            </div>
           </div>
+          {onNavigate && order.vehicles?.plate && (
+            <button
+              onClick={() => onNavigate('orders', { searchInput: order.vehicles.plate, search: order.vehicles.plate, page: 1 })}
+              className="text-xs font-extrabold text-sky-700 hover:text-sky-900 hover:underline inline-flex items-center gap-1 transition-all cursor-pointer pt-2"
+            >
+              <span>Ver todos os serviços desta placa →</span>
+            </button>
+          )}
         </div>
 
         {/* Date / Mileage Box */}

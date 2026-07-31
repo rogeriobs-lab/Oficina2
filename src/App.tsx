@@ -30,10 +30,42 @@ type ViewState = {
 function MainApp() {
   const { user, loading, signOut } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>({ name: 'dashboard' });
+  const [history, setHistory] = useState<ViewState[]>([]);
+  const [savedViewParams, setSavedViewParams] = useState<Record<string, any>>({});
+
+  const saveViewParams = (viewName: string, params: any) => {
+    setSavedViewParams((prev) => ({
+      ...prev,
+      [viewName]: params,
+    }));
+  };
 
   const navigateTo = (viewName: string, params?: any) => {
-    setCurrentView({ name: viewName, params });
-    // Scroll to top on navigation
+    if (params) {
+      saveViewParams(viewName, params);
+    }
+
+    const targetParams = params ?? savedViewParams[viewName];
+
+    setCurrentView((prev) => {
+      // Avoid pushing duplicate consecutive state to history
+      if (prev.name !== viewName || JSON.stringify(prev.params) !== JSON.stringify(targetParams)) {
+        setHistory((h) => [...h, prev]);
+      }
+      return { name: viewName, params: targetParams };
+    });
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const goBack = () => {
+    if (history.length > 0) {
+      const previous = history[history.length - 1];
+      setHistory((h) => h.slice(0, h.length - 1));
+      setCurrentView(previous);
+    } else {
+      setCurrentView({ name: 'dashboard' });
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -57,11 +89,29 @@ function MainApp() {
       case 'dashboard':
         return <DashboardView onNavigate={navigateTo} />;
       case 'clients':
-        return <ClientsView onNavigate={navigateTo} />;
+        return (
+          <ClientsView
+            onNavigate={navigateTo}
+            params={currentView.params ?? savedViewParams['clients']}
+            onSaveParams={(params) => saveViewParams('clients', params)}
+          />
+        );
       case 'vehicles':
-        return <VehiclesView onNavigate={navigateTo} />;
+        return (
+          <VehiclesView
+            onNavigate={navigateTo}
+            params={currentView.params ?? savedViewParams['vehicles']}
+            onSaveParams={(params) => saveViewParams('vehicles', params)}
+          />
+        );
       case 'orders':
-        return <OrdersView onNavigate={navigateTo} />;
+        return (
+          <OrdersView
+            onNavigate={navigateTo}
+            params={currentView.params ?? savedViewParams['orders']}
+            onSaveParams={(params) => saveViewParams('orders', params)}
+          />
+        );
       case 'import':
         return <ImportView />;
       case 'settings':
@@ -70,13 +120,14 @@ function MainApp() {
         return (
           <OrderDetailView
             orderId={currentView.params?.id}
-            onBack={() => navigateTo('orders')}
+            onBack={goBack}
+            onNavigate={navigateTo}
           />
         );
       case 'order-new':
         return (
           <OrderNewView
-            onBack={() => navigateTo('orders')}
+            onBack={goBack}
             onNavigateToOrderDetails={(id) => navigateTo('order-details', { id })}
           />
         );

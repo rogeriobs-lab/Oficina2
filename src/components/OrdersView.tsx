@@ -17,18 +17,35 @@ type OrderRow = {
 
 interface OrdersViewProps {
   onNavigate: (viewName: string, params?: any) => void;
+  params?: any;
+  onSaveParams?: (params: any) => void;
 }
 
-export default function OrdersView({ onNavigate }: OrdersViewProps) {
+export default function OrdersView({ onNavigate, params, onSaveParams }: OrdersViewProps) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'todas' | 'aberta' | 'fechada'>('todas');
-  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState(params?.searchInput ?? params?.search ?? '');
+  const [search, setSearch] = useState(params?.search ?? params?.searchInput ?? '');
+  const [statusFilter, setStatusFilter] = useState<'todas' | 'aberta' | 'fechada'>(params?.statusFilter ?? 'todas');
+  const [page, setPage] = useState(params?.page ?? 1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 50;
+
+  useEffect(() => {
+    if (params) {
+      if (params.searchInput !== undefined) setSearchInput(params.searchInput);
+      if (params.search !== undefined) setSearch(params.search);
+      if (params.statusFilter !== undefined) setStatusFilter(params.statusFilter);
+      if (params.page !== undefined) setPage(params.page);
+    }
+  }, [params]);
+
+  useEffect(() => {
+    if (onSaveParams) {
+      onSaveParams({ searchInput, search, statusFilter, page });
+    }
+  }, [searchInput, search, statusFilter, page, onSaveParams]);
 
   const loadOrders = useCallback(async () => {
     try {

@@ -2,26 +2,42 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients: Pick<Client, 'name'> };
 
 interface VehiclesViewProps {
-  onNavigate?: (view: string) => void;
+  onNavigate?: (view: string, params?: any) => void;
+  params?: any;
+  onSaveParams?: (params: any) => void;
 }
 
-export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
+export default function VehiclesView({ onNavigate, params, onSaveParams }: VehiclesViewProps) {
   const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState(params?.searchInput ?? params?.search ?? '');
+  const [search, setSearch] = useState(params?.search ?? params?.searchInput ?? '');
   const [editingVehicle, setEditingVehicle] = useState<VehicleRow | null>(null);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(params?.page ?? 1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 50;
+
+  useEffect(() => {
+    if (params) {
+      if (params.searchInput !== undefined) setSearchInput(params.searchInput);
+      if (params.search !== undefined) setSearch(params.search);
+      if (params.page !== undefined) setPage(params.page);
+    }
+  }, [params]);
+
+  useEffect(() => {
+    if (onSaveParams) {
+      onSaveParams({ searchInput, search, page });
+    }
+  }, [searchInput, search, page, onSaveParams]);
 
   const [formPlate, setFormPlate] = useState('');
   const [formBrand, setFormBrand] = useState('');
@@ -293,6 +309,16 @@ export default function VehiclesView({ onNavigate }: VehiclesViewProps) {
                           {vehicle.notes}
                         </p>
                       </div>
+                    )}
+
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('orders', { searchInput: vehicle.plate, search: vehicle.plate, page: 1 })}
+                        className="w-full mt-2 py-2 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                      >
+                        <ClipboardList className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Ver Serviços desta Placa</span>
+                      </button>
                     )}
                   </div>
                 </div>
