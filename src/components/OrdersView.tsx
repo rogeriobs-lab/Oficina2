@@ -3,7 +3,7 @@ import { supabase } from '@/src/lib/supabase';
 import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
 import { computeOrderNumbers } from '@/src/lib/orderUtils';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet } from 'lucide-react';
 
 type OrderRow = {
   id: string;
@@ -25,27 +25,46 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'todas' | 'aberta' | 'fechada'>('todas');
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 100;
 
   const loadOrders = useCallback(async () => {
     try {
+      setLoading(true);
       setError(null);
-      const { data, error } = await supabase
+
+      const from = (page - 1) * pageSize;
+      const to = page * pageSize - 1;
+
+      let query = supabase
         .from('service_orders')
-        .select('id, order_date, mileage, status, clients(name), vehicles(plate, brand, model, year), order_items(price)')
+        .select('id, order_date, mileage, status, clients(name), vehicles(plate, brand, model, year), order_items(price)', { count: 'exact' })
         .order('order_date', { ascending: false });
+
+      if (statusFilter !== 'todas') {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data, error, count } = await query.range(from, to);
+
       if (error) throw error;
+
       setOrders((data ?? []) as unknown as OrderRow[]);
+      setTotalCount(count ?? 0);
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar ordens de serviço');
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, statusFilter]);
 
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
+
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   const filtered = orders.filter((o) => {
     const matchSearch =
@@ -212,6 +231,36 @@ export default function OrdersView({ onNavigate }: OrdersViewProps) {
               );
             });
           })()}
+        </div>
+      )}
+
+      {/* Pagination Bar */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+          <p className="text-xs text-slate-500 font-medium">
+            Exibindo página <strong className="text-slate-800">{page}</strong> de <strong className="text-slate-800">{totalPages}</strong> ({totalCount} serviços no total)
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Anterior</span>
+            </button>
+            <span className="text-xs font-bold px-2 text-slate-600">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+            >
+              <span>Próxima</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -52,36 +52,32 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
     try {
       setError(null);
 
-      const [clientsRes, vehiclesRes, ordersRes] = await Promise.all([
-        supabase.from('clients').select('id', { count: 'exact' }),
-        supabase.from('vehicles').select('id', { count: 'exact' }),
+      const [clientsRes, vehiclesRes, ordersCountRes, openOrdersCountRes, recentOrdersRes] = await Promise.all([
+        supabase.from('clients').select('*', { count: 'exact', head: true }),
+        supabase.from('vehicles').select('*', { count: 'exact', head: true }),
+        supabase.from('service_orders').select('*', { count: 'exact', head: true }),
+        supabase.from('service_orders').select('*', { count: 'exact', head: true }).eq('status', 'aberta'),
         supabase
           .from('service_orders')
-          .select('id, order_date, status, clients(name), vehicles(plate, brand, model), order_items(price)'),
+          .select('id, order_date, status, clients(name), vehicles(plate, brand, model), order_items(price)')
+          .order('order_date', { ascending: false })
+          .limit(10),
       ]);
 
       if (clientsRes.error) throw clientsRes.error;
       if (vehiclesRes.error) throw vehiclesRes.error;
-      if (ordersRes.error) throw ordersRes.error;
-
-      const orders = ordersRes.data ?? [];
-      let openOrders = 0;
-
-      for (const order of orders) {
-        if (order.status === 'aberta') openOrders++;
-      }
+      if (ordersCountRes.error) throw ordersCountRes.error;
+      if (openOrdersCountRes.error) throw openOrdersCountRes.error;
+      if (recentOrdersRes.error) throw recentOrdersRes.error;
 
       setStats({
-        clientCount: clientsRes.count ?? clientsRes.data?.length ?? 0,
-        vehicleCount: vehiclesRes.count ?? vehiclesRes.data?.length ?? 0,
-        orderCount: orders.length,
-        openOrders,
+        clientCount: clientsRes.count ?? 0,
+        vehicleCount: vehiclesRes.count ?? 0,
+        orderCount: ordersCountRes.count ?? 0,
+        openOrders: openOrdersCountRes.count ?? 0,
       });
 
-      const sorted = [...orders]
-        .sort((a, b) => new Date(b.order_date).getTime() - new Date(a.order_date).getTime())
-        .slice(0, 6);
-      setRecentOrders(sorted as unknown as RecentOrder[]);
+      setRecentOrders((recentOrdersRes.data ?? []) as unknown as RecentOrder[]);
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao consultar o banco de dados Supabase');
       setError(msg);
