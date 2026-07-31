@@ -803,7 +803,7 @@ export const consolidateDuplicateOrders = async (): Promise<{ success: boolean; 
   try {
     const { data: allOrders, error: fetchErr } = await supabase
       .from('service_orders')
-      .select('id, vehicle_id, order_date, mileage, status, notes')
+      .select('id, vehicle_id, order_date, mileage, status')
       .order('created_at', { ascending: true });
 
     if (fetchErr) throw fetchErr;

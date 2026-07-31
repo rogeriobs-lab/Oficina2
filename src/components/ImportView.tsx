@@ -930,7 +930,6 @@ export default function ImportView() {
                 order_date: group.orderDate,
                 mileage: group.mileage,
                 status: group.status,
-                notes: group.orderNumberRaw ? `O.S. nº ${group.orderNumberRaw}` : undefined,
               })
               .select('id')
               .single();
