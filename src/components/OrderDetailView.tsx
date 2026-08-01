@@ -29,8 +29,8 @@ type OrderDetail = {
   mileage: number | null;
   status: string;
   vehicle_id?: string;
-  clients: { name: string; phone: string | null };
-  vehicles: { id?: string; plate: string; brand: string; model: string; year: number | null };
+  clients: { name: string; phone: string | null; notes?: string | null };
+  vehicles: { id?: string; plate: string; brand: string; model: string; year: number | null; notes?: string | null };
   order_items: OrderItem[];
 };
 
@@ -61,7 +61,7 @@ export default function OrderDetailView({ orderId, onBack, onNavigate }: OrderDe
       setError(null);
       const { data, error } = await supabase
         .from('service_orders')
-        .select('id, order_date, mileage, status, vehicle_id, clients(name, phone), vehicles(id, plate, brand, model, year), order_items(*)')
+        .select('id, order_date, mileage, status, vehicle_id, clients(name, phone, notes), vehicles(id, plate, brand, model, year, notes), order_items(*)')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -349,6 +349,11 @@ export default function OrderDetailView({ orderId, onBack, onNavigate }: OrderDe
               {order.clients?.phone && (
                 <p className="text-sm text-slate-500 mt-1 font-medium">{formatPhone(order.clients.phone)}</p>
               )}
+              {order.clients?.notes && (
+                <p className="text-xs text-slate-600 bg-amber-50/80 p-2 rounded-lg border border-amber-200/80 mt-2 whitespace-pre-wrap font-medium">
+                  <span className="font-bold text-amber-900">Obs:</span> {order.clients.notes}
+                </p>
+              )}
             </div>
           </div>
           {onNavigate && order.clients?.name && (
@@ -376,6 +381,11 @@ export default function OrderDetailView({ orderId, onBack, onNavigate }: OrderDe
               <span className="inline-block mt-1 text-xs font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono border border-slate-200">
                 {order.vehicles?.plate ?? '—'}
               </span>
+              {order.vehicles?.notes && (
+                <p className="text-xs text-slate-600 bg-amber-50/80 p-2 rounded-lg border border-amber-200/80 mt-2 whitespace-pre-wrap font-medium">
+                  <span className="font-bold text-amber-900">Obs:</span> {order.vehicles.notes}
+                </p>
+              )}
             </div>
           </div>
           {onNavigate && order.vehicles?.plate && (

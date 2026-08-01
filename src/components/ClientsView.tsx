@@ -48,7 +48,8 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
         .order('name', { ascending: true });
 
       if (search.trim()) {
-        query = query.ilike('name', `%${search.trim()}%`);
+        const term = `%${search.trim()}%`;
+        query = query.or(`name.ilike.${term},notes.ilike.${term},phone.ilike.${term}`);
       }
 
       const { data, error, count } = await query.range(from, to);
@@ -282,11 +283,16 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
                       )}
 
                       {client.notes && (
-                        <div className="flex items-start gap-2 text-xs text-slate-600 bg-amber-50/60 p-2.5 rounded-xl border border-amber-100/80">
-                          <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                          <p className="line-clamp-2 leading-relaxed text-slate-700 font-medium">
-                            {client.notes}
-                          </p>
+                        <div className="flex items-start gap-2.5 text-xs text-slate-700 bg-amber-50/80 p-3 rounded-xl border border-amber-200/80">
+                          <StickyNote className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="font-bold text-amber-900 block text-[11px] uppercase tracking-wider mb-0.5">
+                              Obs / Observações:
+                            </span>
+                            <p className="whitespace-pre-wrap break-words leading-relaxed font-medium text-slate-800">
+                              {client.notes}
+                            </p>
+                          </div>
                         </div>
                       )}
 

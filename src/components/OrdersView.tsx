@@ -62,7 +62,7 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
         let vRes = await supabase
           .from('vehicles')
           .select('id')
-          .or(`plate.ilike.%${cleanTerm}%,brand.ilike.%${cleanTerm}%,model.ilike.%${cleanTerm}%`)
+          .or(`plate.ilike.%${cleanTerm}%,brand.ilike.%${cleanTerm}%,model.ilike.%${cleanTerm}%,notes.ilike.%${cleanTerm}%`)
           .limit(50);
 
         if (vRes.error && sAlpha) {
@@ -93,7 +93,7 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
         const cRes = await supabase
           .from('clients')
           .select('id')
-          .ilike('name', `%${cleanTerm}%`)
+          .or(`name.ilike.%${cleanTerm}%,notes.ilike.%${cleanTerm}%,phone.ilike.%${cleanTerm}%`)
           .limit(50);
 
         if (cRes.data) {
