@@ -146,9 +146,11 @@ export default function ImportView() {
       return [
         { dbField: 'client_name', label: 'Nome do Cliente / Proprietário', required: true, mappedIndex: -1 },
         { dbField: 'client_phone', label: 'Telefone / WhatsApp', required: false, mappedIndex: -1 },
+        { dbField: 'client_notes', label: 'Observações / Notas do Cliente (Obs)', required: false, mappedIndex: -1 },
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
         { dbField: 'brand', label: 'Marca (ex: Toyota)', required: false, mappedIndex: -1 },
         { dbField: 'model', label: 'Modelo (ex: Corolla)', required: false, mappedIndex: -1 },
+        { dbField: 'vehicle_notes', label: 'Observações do Veículo (Obs)', required: false, mappedIndex: -1 },
         { dbField: 'order_number', label: 'Nº / Código da O.S. (Opcional)', required: false, mappedIndex: -1 },
         { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
         { dbField: 'service_description', label: 'Descrição do Serviço / Peça', required: false, mappedIndex: -1 },
@@ -176,6 +178,9 @@ export default function ImportView() {
       return [
         { dbField: 'plate', label: 'Placa do Veículo', required: true, mappedIndex: -1 },
         { dbField: 'client_identifier', label: 'Proprietário / Cliente (Opcional)', required: false, mappedIndex: -1 },
+        { dbField: 'client_phone', label: 'Telefone / WhatsApp do Cliente', required: false, mappedIndex: -1 },
+        { dbField: 'client_notes', label: 'Observações / Notas do Cliente (Obs)', required: false, mappedIndex: -1 },
+        { dbField: 'vehicle_notes', label: 'Observações do Veículo (Obs)', required: false, mappedIndex: -1 },
         { dbField: 'order_number', label: 'Nº / Código da O.S. (Opcional)', required: false, mappedIndex: -1 },
         { dbField: 'order_date', label: 'Data da O.S. (Ex: 15/05/2024)', required: false, mappedIndex: -1 },
         { dbField: 'service_description', label: 'Descrição do Serviço / Item', required: false, mappedIndex: -1 },
@@ -302,6 +307,17 @@ export default function ImportView() {
             normH.includes('km') ||
             normH.includes('quilometragem') ||
             normH.includes('horimetro')
+          )) ||
+          (field === 'client_notes' && (
+            normH.includes('obs') ||
+            normH.includes('notas') ||
+            normH.includes('observacao') ||
+            normH.includes('comentario')
+          )) ||
+          (field === 'vehicle_notes' && (
+            (normH.includes('obs') && (normH.includes('veic') || normH.includes('carr') || normH.includes('auto'))) ||
+            (normH.includes('nota') && (normH.includes('veic') || normH.includes('carr') || normH.includes('auto'))) ||
+            (normH.includes('observa') && (normH.includes('veic') || normH.includes('carr') || normH.includes('auto')))
           )) ||
           (field === 'notes' && (
             normH.includes('obs') ||
@@ -474,11 +490,13 @@ export default function ImportView() {
       };
 
       // 1. Common Pre-fetch for Client & Vehicle Lookup
-      const { data: existingClientsData } = await supabase.from('clients').select('id, name, phone');
-      const { data: existingVehiclesData } = await supabase.from('vehicles').select('id, plate, client_id');
+      const { data: existingClientsData } = await supabase.from('clients').select('id, name, phone, notes');
+      const { data: existingVehiclesData } = await supabase.from('vehicles').select('id, plate, client_id, notes');
 
       const clientsMap = new Map<string, string>(); // normalized key -> client id
+      const clientNotesMap = new Map<string, string | null>(); // clientId -> current notes
       (existingClientsData || []).forEach((c: any) => {
+        clientNotesMap.set(c.id, c.notes);
         if (c.name) clientsMap.set(normalizeKey(c.name), c.id);
         if (c.phone) {
           clientsMap.set(c.phone.trim(), c.id);
@@ -488,7 +506,9 @@ export default function ImportView() {
       });
 
       const vehiclesMap = new Map<string, { id: string; client_id: string | null }>(); // clean plate -> vehicle info
+      const vehicleNotesMap = new Map<string, string | null>(); // vehicleId -> current notes
       (existingVehiclesData || []).forEach((v: any) => {
+        vehicleNotesMap.set(v.id, v.notes);
         if (v.plate) {
           const rawP = v.plate.toUpperCase().trim();
           const cleanP = rawP.replace(/[^A-Z0-9]/g, '');
@@ -520,6 +540,12 @@ export default function ImportView() {
 
           if (existingId) {
             successCount++;
+            // If existing client lacks notes or has generic notes, update with new notes
+            const currNotes = clientNotesMap.get(existingId);
+            if (notes && (!currNotes || currNotes.startsWith('Cadastrado'))) {
+              await supabase.from('clients').update({ notes }).eq('id', existingId);
+              clientNotesMap.set(existingId, notes);
+            }
           } else if (!clientsToInsertMap.has(normName)) {
             clientsToInsertMap.set(normName, { name: trimmedName, phone, notes });
           } else {
@@ -574,7 +600,7 @@ export default function ImportView() {
             newClientsMap.set(normIdent, {
               name: isPhoneLike ? `Cliente ${rawIdent}` : rawIdent,
               phone: isPhoneLike ? rawIdent : null,
-              notes: 'Cadastrado automaticamente via importador de veículos.',
+              notes: null,
             });
           }
 
@@ -606,12 +632,22 @@ export default function ImportView() {
         // Batch Insert Vehicles
         const vehiclesToInsertMap = new Map<string, { plate: string; brand: string; model: string; client_id: string | null; notes: string | null }>();
 
-        vehicleRowsToProcess.forEach((item) => {
+        for (const item of vehicleRowsToProcess) {
           const normIdent = normalizeKey(item.clientIdent);
           const cleanIdentPhone = item.clientIdent.replace(/\D/g, '');
           const clientId = clientsMap.get(normIdent) || (cleanIdentPhone ? clientsMap.get(cleanIdentPhone) || null : null);
 
-          if (!vehiclesMap.has(item.plateClean) && !vehiclesToInsertMap.has(item.plateClean)) {
+          const existingVeh = vehiclesMap.get(item.plateClean);
+          if (existingVeh) {
+            successCount++;
+            if (item.notes) {
+              const currNotes = vehicleNotesMap.get(existingVeh.id);
+              if (!currNotes || currNotes.startsWith('Cadastrado')) {
+                await supabase.from('vehicles').update({ notes: item.notes }).eq('id', existingVeh.id);
+                vehicleNotesMap.set(existingVeh.id, item.notes);
+              }
+            }
+          } else if (!vehiclesToInsertMap.has(item.plateClean)) {
             vehiclesToInsertMap.set(item.plateClean, {
               plate: item.plateClean,
               brand: item.brand,
@@ -622,7 +658,7 @@ export default function ImportView() {
           } else {
             successCount++;
           }
-        });
+        }
 
         const newVehiclesList = Array.from(vehiclesToInsertMap.values());
         for (let v = 0; v < newVehiclesList.length; v += 200) {
@@ -639,24 +675,44 @@ export default function ImportView() {
         // High-Speed Master / Services Import ('master' or 'orders')
         // Step 1: In-memory extract missing clients & vehicles
         const newClientsMap = new Map<string, { name: string; phone: string | null; notes: string | null }>();
+        const clientUpdatesMap = new Map<string, string>();
 
         rows.forEach((row) => {
           const cName = getMappedValue(row, 'client_name') || getMappedValue(row, 'name') || getMappedValue(row, 'client_identifier');
           const cPhone = getMappedValue(row, 'client_phone') || getMappedValue(row, 'phone');
+          const cNotes = getMappedValue(row, 'client_notes') || getMappedValue(row, 'notes');
+          const trimmedNotes = cNotes?.trim() || null;
+
           if (cName && cName.trim()) {
             const trimmedName = cName.trim();
             const normN = normalizeKey(trimmedName);
             const cleanP = cPhone ? cPhone.replace(/\D/g, '') : '';
             const existingId = clientsMap.get(normN) || (cleanP ? clientsMap.get(cleanP) : null);
-            if (!existingId && !newClientsMap.has(normN)) {
+
+            if (existingId) {
+              const currNotes = clientNotesMap.get(existingId);
+              if (trimmedNotes && (!currNotes || currNotes.startsWith('Cadastrado'))) {
+                clientUpdatesMap.set(existingId, trimmedNotes);
+                clientNotesMap.set(existingId, trimmedNotes);
+              }
+            } else if (!newClientsMap.has(normN)) {
               newClientsMap.set(normN, {
                 name: trimmedName,
                 phone: cPhone ? cPhone.trim() : null,
-                notes: 'Cadastrado automaticamente via importador.',
+                notes: trimmedNotes,
               });
+            } else if (trimmedNotes && !newClientsMap.get(normN)!.notes) {
+              newClientsMap.get(normN)!.notes = trimmedNotes;
             }
           }
         });
+
+        // Apply Client Notes Updates for Existing Clients
+        if (clientUpdatesMap.size > 0) {
+          for (const [id, notes] of clientUpdatesMap.entries()) {
+            await supabase.from('clients').update({ notes }).eq('id', id);
+          }
+        }
 
         // Batch Insert Clients
         const newClientsList = Array.from(newClientsMap.values());
@@ -680,6 +736,7 @@ export default function ImportView() {
 
         // Step 2: In-memory extract missing vehicles
         const newVehiclesMap = new Map<string, { plate: string; brand: string; model: string; client_id: string | null; notes: string | null }>();
+        const vehicleUpdatesMap = new Map<string, string>();
 
         rows.forEach((row) => {
           const plate = getMappedValue(row, 'plate');
@@ -687,7 +744,19 @@ export default function ImportView() {
           const plateClean = plate.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
           if (!plateClean) return;
 
-          if (!vehiclesMap.has(plateClean) && !newVehiclesMap.has(plateClean)) {
+          const rawVNotes = getMappedValue(row, 'vehicle_notes');
+          const trimmedVNotes = rawVNotes?.trim() || null;
+
+          const existingVeh = vehiclesMap.get(plateClean);
+          if (existingVeh) {
+            if (trimmedVNotes) {
+              const currNotes = vehicleNotesMap.get(existingVeh.id);
+              if (!currNotes || currNotes.startsWith('Cadastrado')) {
+                vehicleUpdatesMap.set(existingVeh.id, trimmedVNotes);
+                vehicleNotesMap.set(existingVeh.id, trimmedVNotes);
+              }
+            }
+          } else if (!newVehiclesMap.has(plateClean)) {
             const cName = getMappedValue(row, 'client_name') || getMappedValue(row, 'name') || getMappedValue(row, 'client_identifier');
             const cPhone = getMappedValue(row, 'client_phone') || getMappedValue(row, 'phone');
             let clientId: string | null = null;
@@ -705,10 +774,19 @@ export default function ImportView() {
               brand,
               model,
               client_id: clientId,
-              notes: 'Cadastrado via importador de O.S.',
+              notes: trimmedVNotes,
             });
+          } else if (trimmedVNotes && !newVehiclesMap.get(plateClean)!.notes) {
+            newVehiclesMap.get(plateClean)!.notes = trimmedVNotes;
           }
         });
+
+        // Apply Vehicle Notes Updates for Existing Vehicles
+        if (vehicleUpdatesMap.size > 0) {
+          for (const [id, notes] of vehicleUpdatesMap.entries()) {
+            await supabase.from('vehicles').update({ notes }).eq('id', id);
+          }
+        }
 
         // Batch Insert Vehicles
         const newVehiclesList = Array.from(newVehiclesMap.values());
