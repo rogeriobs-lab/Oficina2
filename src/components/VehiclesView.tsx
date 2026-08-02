@@ -301,7 +301,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                         <StickyNote className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div className="flex-1 min-w-0">
                           <span className="font-bold text-amber-900 block text-[11px] uppercase tracking-wider mb-0.5">
-                            Obs / Observações:
+                            OBSERVAÇÕES:
                           </span>
                           <p className="whitespace-pre-wrap break-words leading-relaxed font-medium text-slate-800">
                             {vehicle.notes}

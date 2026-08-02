@@ -351,7 +351,7 @@ export default function OrderDetailView({ orderId, onBack, onNavigate }: OrderDe
               )}
               {order.clients?.notes && (
                 <p className="text-xs text-slate-600 bg-amber-50/80 p-2 rounded-lg border border-amber-200/80 mt-2 whitespace-pre-wrap font-medium">
-                  <span className="font-bold text-amber-900">Obs:</span> {order.clients.notes}
+                  <span className="font-bold text-amber-900">Observações:</span> {order.clients.notes}
                 </p>
               )}
             </div>
@@ -383,7 +383,7 @@ export default function OrderDetailView({ orderId, onBack, onNavigate }: OrderDe
               </span>
               {order.vehicles?.notes && (
                 <p className="text-xs text-slate-600 bg-amber-50/80 p-2 rounded-lg border border-amber-200/80 mt-2 whitespace-pre-wrap font-medium">
-                  <span className="font-bold text-amber-900">Obs:</span> {order.vehicles.notes}
+                  <span className="font-bold text-amber-900">Observações:</span> {order.vehicles.notes}
                 </p>
               )}
             </div>
