@@ -73,6 +73,11 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     setFormPhone(formatPhone(e.target.value));
   };
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
   const openAddModal = () => {
     setEditingClient(null);
     setFormName('');
@@ -80,6 +85,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     setFormNotes('');
     setFormError(null);
     setModalVisible(true);
+    scrollToTop();
   };
 
   const openEditModal = (client: Client) => {
@@ -89,6 +95,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     setFormNotes(client.notes ?? '');
     setFormError(null);
     setModalVisible(true);
+    scrollToTop();
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -140,7 +147,93 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
   if (error) return <ErrorState message={error} onRetry={loadClients} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Add / Edit Modal - Positioned at top for instant visibility */}
+      {modalVisible && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-start justify-center z-50 p-4 pt-6 sm:pt-12 overflow-y-auto animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-scale-up my-auto sm:my-0">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/50">
+              <h2 className="text-xl font-bold text-slate-900">
+                {editingClient ? 'Editar Cliente' : 'Novo Cliente'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="p-6 space-y-4">
+              {formError && (
+                <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-100">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-700 font-medium">{formError}</p>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Carlos Silva"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none"
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Telefone
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: (11) 98765-4321"
+                  value={formPhone}
+                  onChange={handlePhoneChange}
+                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Observações
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Notas, observações sobre o cliente..."
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 py-2.5 text-white rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition-all cursor-pointer flex items-center justify-center"
+                  style={{ backgroundColor: theme.primary }}
+                >
+                  {saving ? 'Salvando...' : editingClient ? 'Salvar' : 'Cadastrar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
@@ -344,91 +437,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
         </div>
       )}
 
-      {/* Add / Edit Modal */}
-      {modalVisible && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-gray-100 overflow-hidden animate-scale-up">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h2 className="text-xl font-bold text-slate-900">
-                {editingClient ? 'Editar Cliente' : 'Novo Cliente'}
-              </h2>
-              <button
-                onClick={closeModal}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <form onSubmit={handleSave} className="p-6 space-y-4">
-              {formError && (
-                <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-100">
-                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-700 font-medium">{formError}</p>
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Nome *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex: Carlos Silva"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Telefone
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: (11) 98765-4321"
-                  value={formPhone}
-                  onChange={handlePhoneChange}
-                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Observações
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Notas, observações sobre o cliente..."
-                  value={formNotes}
-                  onChange={(e) => setFormNotes(e.target.value)}
-                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-sky-500 transition-all outline-none resize-none"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-all cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="flex-1 py-2.5 text-white rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition-all cursor-pointer flex items-center justify-center"
-                  style={{ backgroundColor: theme.primary }}
-                >
-                  {saving ? 'Salvando...' : editingClient ? 'Salvar' : 'Cadastrar'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -81,6 +81,11 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     loadData();
   }, [loadData]);
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
   const openAddModal = () => {
     setEditingVehicle(null);
     setFormPlate('');
@@ -91,6 +96,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormNotes('');
     setFormError(null);
     setModalVisible(true);
+    scrollToTop();
   };
 
   const openEditModal = (vehicle: VehicleRow) => {
@@ -103,6 +109,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormNotes(vehicle.notes ?? '');
     setFormError(null);
     setModalVisible(true);
+    scrollToTop();
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -166,7 +173,163 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
   if (error) return <ErrorState message={error} onRetry={loadData} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Add / Edit Modal - Positioned at top for instant visibility */}
+      {modalVisible && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-start justify-center z-50 p-4 pt-6 sm:pt-12 overflow-y-auto animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-scale-up my-auto sm:my-0">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/50">
+              <h2 className="text-xl font-bold text-slate-900">
+                {editingVehicle ? 'Editar Veículo' : 'Novo Veículo'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {clients.length === 0 ? (
+              <div className="p-6 text-center space-y-4">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-600 mx-auto">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-slate-800">Nenhum cliente cadastrado</h3>
+                <p className="text-sm text-slate-500">
+                  Para cadastrar um veículo, você precisa cadastrar o proprietário (cliente) primeiro.
+                </p>
+                <button
+                  onClick={closeModal}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-semibold transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSave} className="p-6 space-y-4">
+                {formError && (
+                  <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-100">
+                    <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-700 font-medium">{formError}</p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      Placa *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: BRA2E19"
+                      value={formPlate}
+                      maxLength={8}
+                      onChange={(e) => setFormPlate(e.target.value.toUpperCase())}
+                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none font-mono"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      Ano
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Ex: 2021"
+                      value={formYear}
+                      onChange={(e) => setFormYear(e.target.value)}
+                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      Marca *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Toyota"
+                      value={formBrand}
+                      onChange={(e) => setFormBrand(e.target.value)}
+                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      Modelo *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Corolla"
+                      value={formModel}
+                      onChange={(e) => setFormModel(e.target.value)}
+                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Cliente Proprietário *
+                  </label>
+                  <select
+                    value={formClientId}
+                    required
+                    onChange={(e) => setFormClientId(e.target.value)}
+                    className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>Selecionar proprietário...</option>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Observações
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Notas, observações sobre o carro..."
+                    value={formNotes}
+                    onChange={(e) => setFormNotes(e.target.value)}
+                    className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 py-2.5 text-white rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition-all cursor-pointer flex items-center justify-center"
+                    style={{ backgroundColor: theme.secondary }}
+                  >
+                    {saving ? 'Salvando...' : editingVehicle ? 'Salvar' : 'Cadastrar'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
@@ -357,161 +520,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         </div>
       )}
 
-      {/* Add / Edit Modal */}
-      {modalVisible && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-gray-100 overflow-hidden animate-scale-up">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h2 className="text-xl font-bold text-slate-900">
-                {editingVehicle ? 'Editar Veículo' : 'Novo Veículo'}
-              </h2>
-              <button
-                onClick={closeModal}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            {clients.length === 0 ? (
-              <div className="p-6 text-center space-y-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-600 mx-auto">
-                  <AlertCircle className="w-6 h-6" />
-                </div>
-                <h3 className="font-bold text-slate-800">Nenhum cliente cadastrado</h3>
-                <p className="text-sm text-slate-500">
-                  Para cadastrar um veículo, você precisa cadastrar o proprietário (cliente) primeiro.
-                </p>
-                <button
-                  onClick={closeModal}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-semibold transition-all"
-                >
-                  Fechar
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSave} className="p-6 space-y-4">
-                {formError && (
-                  <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-100">
-                    <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                    <p className="text-sm text-red-700 font-medium">{formError}</p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">
-                      Placa *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: BRA2E19"
-                      value={formPlate}
-                      maxLength={8}
-                      onChange={(e) => setFormPlate(e.target.value.toUpperCase())}
-                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none font-mono"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">
-                      Ano
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="Ex: 2021"
-                      value={formYear}
-                      onChange={(e) => setFormYear(e.target.value)}
-                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">
-                      Marca *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: Toyota"
-                      value={formBrand}
-                      onChange={(e) => setFormBrand(e.target.value)}
-                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">
-                      Modelo *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: Corolla"
-                      value={formModel}
-                      onChange={(e) => setFormModel(e.target.value)}
-                      className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Cliente Proprietário *
-                  </label>
-                  <select
-                    value={formClientId}
-                    required
-                    onChange={(e) => setFormClientId(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none cursor-pointer"
-                  >
-                    <option value="" disabled>Selecionar proprietário...</option>
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Observações
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="Notas, observações sobre o carro..."
-                    value={formNotes}
-                    onChange={(e) => setFormNotes(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none resize-none"
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-all cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="flex-1 py-2.5 text-white rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition-all cursor-pointer flex items-center justify-center"
-                    style={{ backgroundColor: theme.secondary }}
-                  >
-                    {saving ? 'Salvando...' : editingVehicle ? 'Salvar' : 'Cadastrar'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
