@@ -376,6 +376,21 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                             type="text"
                             value={clientSearchText}
                             onChange={(e) => setClientSearchText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (filteredClients.length > 0) {
+                                  setFormClientId(filteredClients[0].id);
+                                  setIsClientDropdownOpen(false);
+                                  setClientSearchText('');
+                                }
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsClientDropdownOpen(false);
+                              }
+                            }}
                             placeholder="Pesquisar por nome ou telefone..."
                             className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                             autoFocus
