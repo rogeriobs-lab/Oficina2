@@ -906,10 +906,38 @@ export const consolidateDuplicateVehicles = async (): Promise<{ success: boolean
     let mergedCount = 0;
 
     for (const [_, vehicleList] of groups.entries()) {
-      if (vehicleList.length <= 1) continue;
-
+      // Check if primary vehicle needs client_id from duplicates or service orders
       const primaryVehicle = vehicleList[0];
       const duplicateVehicleIds = vehicleList.slice(1).map((v) => v.id);
+
+      const bestClientId = vehicleList.find((v) => v.client_id)?.client_id;
+      if (bestClientId && !primaryVehicle.client_id) {
+        primaryVehicle.client_id = bestClientId;
+        await supabase
+          .from('vehicles')
+          .update({ client_id: bestClientId })
+          .eq('id', primaryVehicle.id);
+      }
+
+      if (!primaryVehicle.client_id) {
+        const { data: orderData } = await supabase
+          .from('service_orders')
+          .select('client_id')
+          .in('vehicle_id', [primaryVehicle.id, ...duplicateVehicleIds])
+          .not('client_id', 'is', null)
+          .limit(1);
+
+        if (orderData && orderData.length > 0 && orderData[0].client_id) {
+          const foundClientId = orderData[0].client_id;
+          primaryVehicle.client_id = foundClientId;
+          await supabase
+            .from('vehicles')
+            .update({ client_id: foundClientId })
+            .eq('id', primaryVehicle.id);
+        }
+      }
+
+      if (vehicleList.length <= 1) continue;
 
       // Reassign any service_orders linked to duplicate vehicle IDs to primaryVehicle.id
       const { error: reassignErr } = await supabase

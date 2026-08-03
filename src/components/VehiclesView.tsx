@@ -4,7 +4,7 @@ import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
 import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
 
-type VehicleRow = Vehicle & { clients: Pick<Client, 'name'> };
+type VehicleRow = Vehicle & { clients?: { name: string } | Array<{ name: string }> | null };
 
 interface VehiclesViewProps {
   onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
@@ -93,6 +93,26 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     }
   };
 
+  const getVehicleOwnerName = useCallback(
+    (vehicle: VehicleRow) => {
+      if (vehicle.clients) {
+        if (Array.isArray(vehicle.clients) && vehicle.clients.length > 0) {
+          const name = (vehicle.clients[0] as any)?.name;
+          if (name) return name;
+        } else if (typeof vehicle.clients === 'object' && 'name' in vehicle.clients) {
+          const name = (vehicle.clients as any).name;
+          if (name) return name;
+        }
+      }
+      if (vehicle.client_id) {
+        const found = clients.find((c) => c.id === vehicle.client_id);
+        if (found?.name) return found.name;
+      }
+      return 'Sem proprietário';
+    },
+    [clients]
+  );
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -118,6 +138,9 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       if (vehiclesRes.error) throw vehiclesRes.error;
       if (clientsRes.error) console.warn('Erro ao carregar lista de clientes para seleção:', clientsRes.error);
 
+      const loadedClients = (clientsRes.data ?? []) as Client[];
+      setClients(loadedClients);
+
       const rawVehicles = (vehiclesRes.data ?? []) as VehicleRow[];
       const uniqueVehicles: VehicleRow[] = [];
       const seenIds = new Set<string>();
@@ -133,9 +156,48 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         uniqueVehicles.push(v);
       }
 
+      // Check if any vehicle is missing a client_id or owner name, and resolve from service_orders
+      const missingIds = uniqueVehicles
+        .filter((v) => {
+          if (!v.client_id) return true;
+          const hasRelation = Array.isArray(v.clients) ? v.clients.length > 0 : Boolean(v.clients?.name);
+          const hasInClientsList = loadedClients.some((c) => c.id === v.client_id);
+          return !hasRelation && !hasInClientsList;
+        })
+        .map((v) => v.id);
+
+      if (missingIds.length > 0) {
+        const { data: orderData } = await supabase
+          .from('service_orders')
+          .select('vehicle_id, client_id, clients(id, name)')
+          .in('vehicle_id', missingIds)
+          .not('client_id', 'is', null);
+
+        if (orderData && orderData.length > 0) {
+          const orderMap = new Map<string, { client_id: string; name: string }>();
+          for (const item of orderData) {
+            if (item.vehicle_id && item.client_id) {
+              const cObj = Array.isArray(item.clients) ? item.clients[0] : item.clients;
+              const name = (cObj as any)?.name;
+              if (name) {
+                orderMap.set(item.vehicle_id, { client_id: item.client_id, name });
+              }
+            }
+          }
+
+          for (const v of uniqueVehicles) {
+            const found = orderMap.get(v.id);
+            if (found) {
+              v.client_id = found.client_id;
+              v.clients = { name: found.name };
+              supabase.from('vehicles').update({ client_id: found.client_id }).eq('id', v.id).then();
+            }
+          }
+        }
+      }
+
       setVehicles(uniqueVehicles);
       setTotalCount(uniqueVehicles.length < rawVehicles.length ? uniqueVehicles.length : (vehiclesRes.count ?? rawVehicles.length));
-      setClients((clientsRes.data ?? []) as Client[]);
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar veículos');
       setError(msg);
@@ -215,7 +277,8 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         });
 
         if (duplicate) {
-          const ownerName = (duplicate as any).clients?.name;
+          const clientRel = (duplicate as any).clients;
+          const ownerName = Array.isArray(clientRel) ? clientRel[0]?.name : clientRel?.name;
           setFormError(
             `A placa "${formPlate.trim().toUpperCase()}" já está cadastrada no sistema${
               ownerName ? ` (Proprietário: ${ownerName})` : ''
@@ -291,13 +354,16 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     return nameMatch || phoneMatch;
   });
 
-  const filtered = vehicles.filter(
-    (v) =>
-      v.plate.toLowerCase().includes(search.toLowerCase()) ||
-      v.brand.toLowerCase().includes(search.toLowerCase()) ||
-      v.model.toLowerCase().includes(search.toLowerCase()) ||
-      v.clients?.name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = vehicles.filter((v) => {
+    const s = search.toLowerCase();
+    const ownerName = getVehicleOwnerName(v).toLowerCase();
+    return (
+      v.plate.toLowerCase().includes(s) ||
+      v.brand.toLowerCase().includes(s) ||
+      v.model.toLowerCase().includes(s) ||
+      ownerName.includes(s)
+    );
+  });
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={loadData} />;
@@ -769,7 +835,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
 
                     <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                       <User className="w-4 h-4 text-sky-600 shrink-0" />
-                      <span className="truncate">{vehicle.clients?.name ?? 'Sem proprietário'}</span>
+                      <span className="truncate">{getVehicleOwnerName(vehicle)}</span>
                     </div>
 
                     {vehicle.notes && (
