@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
+import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients: Pick<Client, 'name'> };
 
@@ -41,6 +41,9 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [clientSearchText, setClientSearchText] = useState('');
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -60,7 +63,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
 
       const [vehiclesRes, clientsRes] = await Promise.all([
         vehiclesQuery.range(from, to),
-        supabase.from('clients').select('id, name').order('name').limit(200),
+        supabase.from('clients').select('id, name, phone').order('name').limit(1000),
       ]);
 
       if (vehiclesRes.error) throw vehiclesRes.error;
@@ -95,6 +98,8 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormClientId(clients[0]?.id ?? '');
     setFormNotes('');
     setFormError(null);
+    setClientSearchText('');
+    setIsClientDropdownOpen(false);
     setModalVisible(true);
     scrollToTop();
   };
@@ -108,6 +113,8 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormClientId(vehicle.client_id);
     setFormNotes(vehicle.notes ?? '');
     setFormError(null);
+    setClientSearchText('');
+    setIsClientDropdownOpen(false);
     setModalVisible(true);
     scrollToTop();
   };
@@ -188,7 +195,18 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormNotes('');
     setFormError(null);
     setEditingVehicle(null);
+    setClientSearchText('');
+    setIsClientDropdownOpen(false);
   };
+
+  const selectedClient = clients.find((c) => c.id === formClientId);
+  const filteredClients = clients.filter((c) => {
+    if (!clientSearchText.trim()) return true;
+    const q = clientSearchText.toLowerCase().trim();
+    const nameMatch = c.name?.toLowerCase().includes(q);
+    const phoneMatch = c.phone?.replace(/\D/g, '').includes(q.replace(/\D/g, '')) || c.phone?.toLowerCase().includes(q);
+    return nameMatch || phoneMatch;
+  });
 
   const filtered = vehicles.filter(
     (v) =>
@@ -305,23 +323,119 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Cliente Proprietário *
+                <div className="space-y-1 relative">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                    <span>Cliente Proprietário *</span>
+                    {clients.length > 0 && (
+                      <span className="text-xs font-normal text-slate-400">
+                        {clients.length} cadastrado(s)
+                      </span>
+                    )}
                   </label>
-                  <select
-                    value={formClientId}
-                    required
-                    onChange={(e) => setFormClientId(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-emerald-500 transition-all outline-none cursor-pointer"
-                  >
-                    <option value="" disabled>Selecionar proprietário...</option>
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+
+                  {/* Trigger button */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsClientDropdownOpen((prev) => !prev)}
+                      className={`w-full text-left px-3.5 py-2.5 bg-gray-50 border rounded-xl text-sm flex items-center justify-between transition-all cursor-pointer ${
+                        isClientDropdownOpen ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/10' : 'border-gray-200 hover:bg-gray-100/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                        <User className="w-4 h-4 text-slate-400 shrink-0" />
+                        {selectedClient ? (
+                          <div className="truncate">
+                            <span className="font-semibold text-slate-900">{selectedClient.name}</span>
+                            {selectedClient.phone && (
+                              <span className="text-xs text-slate-500 ml-2 font-normal">({selectedClient.phone})</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Selecione o proprietário...</span>
+                        )}
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isClientDropdownOpen ? 'rotate-180 text-emerald-600' : ''}`} />
+                    </button>
+
+                    {/* Backdrop to close dropdown when clicking outside */}
+                    {isClientDropdownOpen && (
+                      <div
+                        className="fixed inset-0 z-20"
+                        onClick={() => setIsClientDropdownOpen(false)}
+                      />
+                    )}
+
+                    {/* Dropdown panel */}
+                    {isClientDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-30 overflow-hidden animate-scale-up">
+                        {/* Search input header */}
+                        <div className="p-2.5 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
+                          <Search className="w-4 h-4 text-slate-400 shrink-0 ml-1" />
+                          <input
+                            type="text"
+                            value={clientSearchText}
+                            onChange={(e) => setClientSearchText(e.target.value)}
+                            placeholder="Pesquisar por nome ou telefone..."
+                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            autoFocus
+                          />
+                          {clientSearchText && (
+                            <button
+                              type="button"
+                              onClick={() => setClientSearchText('')}
+                              className="p-1 hover:bg-slate-200 rounded-md text-slate-400 hover:text-slate-600 cursor-pointer"
+                              title="Limpar busca"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Scrollable list of clients */}
+                        <div className="max-h-52 overflow-y-auto p-1 divide-y divide-slate-50">
+                          {filteredClients.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-slate-400 font-medium">
+                              Nenhum cliente encontrado com &quot;{clientSearchText}&quot;
+                            </div>
+                          ) : (
+                            filteredClients.map((c) => {
+                              const isSelected = c.id === formClientId;
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormClientId(c.id);
+                                    setIsClientDropdownOpen(false);
+                                    setClientSearchText('');
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                    isSelected ? 'bg-emerald-50/90 text-emerald-900 font-bold' : 'hover:bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
+                                      isSelected ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {c.name ? c.name.charAt(0).toUpperCase() : 'C'}
+                                    </div>
+                                    <div className="truncate">
+                                      <div className="truncate font-semibold">{c.name}</div>
+                                      {c.phone && (
+                                        <div className="text-[10px] text-slate-400 font-normal">{c.phone}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 ml-1" />}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-1">
