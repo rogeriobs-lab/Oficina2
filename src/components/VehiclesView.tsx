@@ -380,11 +380,6 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                if (filteredClients.length > 0) {
-                                  setFormClientId(filteredClients[0].id);
-                                  setIsClientDropdownOpen(false);
-                                  setClientSearchText('');
-                                }
                               } else if (e.key === 'Escape') {
                                 e.preventDefault();
                                 e.stopPropagation();
