@@ -199,12 +199,29 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setIsClientDropdownOpen(false);
   };
 
+  const normalizeStr = (str?: string | null) =>
+    (str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
   const selectedClient = clients.find((c) => c.id === formClientId);
+
   const filteredClients = clients.filter((c) => {
     if (!clientSearchText.trim()) return true;
-    const q = clientSearchText.toLowerCase().trim();
-    const nameMatch = c.name?.toLowerCase().includes(q);
-    const phoneMatch = c.phone?.replace(/\D/g, '').includes(q.replace(/\D/g, '')) || c.phone?.toLowerCase().includes(q);
+    const query = normalizeStr(clientSearchText);
+    const words = query.split(/\s+/).filter(Boolean);
+
+    const cName = normalizeStr(c.name);
+    const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
+    const queryDigits = clientSearchText.replace(/\D/g, '');
+
+    const nameMatch = words.length > 0 && words.every((w) => cName.includes(w));
+    const phoneMatch =
+      (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
+      normalizeStr(c.phone).includes(query);
+
     return nameMatch || phoneMatch;
   });
 
@@ -380,6 +397,11 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 e.stopPropagation();
+                                if (filteredClients.length > 0) {
+                                  setFormClientId(filteredClients[0].id);
+                                  setIsClientDropdownOpen(false);
+                                  setClientSearchText('');
+                                }
                               } else if (e.key === 'Escape') {
                                 e.preventDefault();
                                 e.stopPropagation();
