@@ -125,6 +125,35 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setSaving(true);
     setFormError(null);
     try {
+      const cleanTargetPlate = formPlate.replace(/[^A-Z0-9]/g, '').toUpperCase();
+
+      // Check for duplicate plate
+      const { data: existingPlates, error: checkError } = await supabase
+        .from('vehicles')
+        .select('id, plate, clients(name)');
+
+      if (checkError) throw checkError;
+
+      if (existingPlates) {
+        const duplicate = existingPlates.find((v: any) => {
+          const cleanP = (v.plate || '').replace(/[^A-Z0-9]/g, '').toUpperCase();
+          if (cleanP !== cleanTargetPlate) return false;
+          if (editingVehicle && v.id === editingVehicle.id) return false;
+          return true;
+        });
+
+        if (duplicate) {
+          const ownerName = (duplicate as any).clients?.name;
+          setFormError(
+            `A placa "${formPlate.trim().toUpperCase()}" já está cadastrada no sistema${
+              ownerName ? ` (Proprietário: ${ownerName})` : ''
+            }. Não é possível cadastrar a mesma placa duplicada.`
+          );
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload = {
         plate: formPlate.trim().toUpperCase(),
         brand: formBrand.trim() || 'Não informada',
