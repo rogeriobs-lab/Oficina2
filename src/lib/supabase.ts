@@ -884,13 +884,26 @@ export const consolidateDuplicateVehicles = async (): Promise<{ success: boolean
   try {
     const { data: allVehicles, error: fetchErr } = await supabase
       .from('vehicles')
-      .select('id, plate, client_id, brand, model, year, notes, created_at')
+      .select('id, plate, client_id, brand, model, year, notes, created_at, clients(id, name)')
       .order('created_at', { ascending: true });
 
     if (fetchErr) throw fetchErr;
     if (!allVehicles || allVehicles.length === 0) {
       return { success: true, mergedCount: 0, message: 'Nenhum veículo encontrado no banco de dados.' };
     }
+
+    const isValidName = (name: string | null | undefined): boolean => {
+      if (!name) return false;
+      const clean = name.trim();
+      return (
+        clean !== '' &&
+        clean !== '-' &&
+        clean !== ' - ' &&
+        clean !== '--' &&
+        clean.toLowerCase() !== 'sem nome' &&
+        clean.toLowerCase() !== 'sem proprietário'
+      );
+    };
 
     const groups = new Map<string, typeof allVehicles>();
     for (const v of allVehicles) {
@@ -905,34 +918,61 @@ export const consolidateDuplicateVehicles = async (): Promise<{ success: boolean
 
     let mergedCount = 0;
 
-    for (const [_, vehicleList] of groups.entries()) {
-      // Check if primary vehicle needs client_id from duplicates or service orders
+    for (const [cleanPlate, vehicleList] of groups.entries()) {
       const primaryVehicle = vehicleList[0];
       const duplicateVehicleIds = vehicleList.slice(1).map((v) => v.id);
+      const allGroupIds = vehicleList.map((v) => v.id);
 
-      const bestClientId = vehicleList.find((v) => v.client_id)?.client_id;
-      if (bestClientId && !primaryVehicle.client_id) {
-        primaryVehicle.client_id = bestClientId;
-        await supabase
-          .from('vehicles')
-          .update({ client_id: bestClientId })
-          .eq('id', primaryVehicle.id);
-      }
+      const getClientNameFromVehicle = (v: typeof primaryVehicle) => {
+        const cObj = Array.isArray(v.clients) ? v.clients[0] : v.clients;
+        return (cObj as any)?.name;
+      };
 
-      if (!primaryVehicle.client_id) {
-        const { data: orderData } = await supabase
-          .from('service_orders')
-          .select('client_id')
-          .in('vehicle_id', [primaryVehicle.id, ...duplicateVehicleIds])
-          .not('client_id', 'is', null)
-          .limit(1);
+      let primaryClientName = getClientNameFromVehicle(primaryVehicle);
+      let needsClientUpdate = !primaryVehicle.client_id || !isValidName(primaryClientName);
 
-        if (orderData && orderData.length > 0 && orderData[0].client_id) {
-          const foundClientId = orderData[0].client_id;
-          primaryVehicle.client_id = foundClientId;
+      if (needsClientUpdate) {
+        // Look for a duplicate vehicle in this group with a valid client name
+        const vehicleWithValidClient = vehicleList.find((v) => {
+          const name = getClientNameFromVehicle(v);
+          return v.client_id && isValidName(name);
+        });
+
+        if (vehicleWithValidClient && vehicleWithValidClient.client_id) {
+          primaryVehicle.client_id = vehicleWithValidClient.client_id;
           await supabase
             .from('vehicles')
-            .update({ client_id: foundClientId })
+            .update({ client_id: vehicleWithValidClient.client_id })
+            .eq('id', primaryVehicle.id);
+          needsClientUpdate = false;
+        }
+      }
+
+      if (needsClientUpdate) {
+        // Search service_orders linked to any of these vehicle IDs or matching plate
+        const { data: orderData } = await supabase
+          .from('service_orders')
+          .select('client_id, clients(id, name)')
+          .in('vehicle_id', allGroupIds)
+          .not('client_id', 'is', null);
+
+        let foundValidClientId: string | null = null;
+        if (orderData && orderData.length > 0) {
+          for (const item of orderData) {
+            const cObj = Array.isArray(item.clients) ? item.clients[0] : item.clients;
+            const cName = (cObj as any)?.name;
+            if (item.client_id && isValidName(cName)) {
+              foundValidClientId = item.client_id;
+              break;
+            }
+          }
+        }
+
+        if (foundValidClientId) {
+          primaryVehicle.client_id = foundValidClientId;
+          await supabase
+            .from('vehicles')
+            .update({ client_id: foundValidClientId })
             .eq('id', primaryVehicle.id);
         }
       }

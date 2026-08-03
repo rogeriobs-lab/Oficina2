@@ -93,22 +93,39 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     }
   };
 
+  const isValidOwnerName = (name: string | null | undefined): boolean => {
+    if (!name) return false;
+    const clean = name.trim();
+    return (
+      clean !== '' &&
+      clean !== '-' &&
+      clean !== ' - ' &&
+      clean !== '--' &&
+      clean.toLowerCase() !== 'sem nome' &&
+      clean.toLowerCase() !== 'sem proprietário'
+    );
+  };
+
   const getVehicleOwnerName = useCallback(
     (vehicle: VehicleRow) => {
+      let name: string | undefined;
       if (vehicle.clients) {
         if (Array.isArray(vehicle.clients) && vehicle.clients.length > 0) {
-          const name = (vehicle.clients[0] as any)?.name;
-          if (name) return name;
+          name = (vehicle.clients[0] as any)?.name;
         } else if (typeof vehicle.clients === 'object' && 'name' in vehicle.clients) {
-          const name = (vehicle.clients as any).name;
-          if (name) return name;
+          name = (vehicle.clients as any).name;
         }
       }
-      if (vehicle.client_id) {
+      if (!isValidOwnerName(name) && vehicle.client_id) {
         const found = clients.find((c) => c.id === vehicle.client_id);
-        if (found?.name) return found.name;
+        if (found?.name && isValidOwnerName(found.name)) {
+          name = found.name;
+        }
       }
-      return 'Sem proprietário';
+      if (!isValidOwnerName(name)) {
+        return 'Sem proprietário';
+      }
+      return name!;
     },
     [clients]
   );
@@ -156,17 +173,25 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         uniqueVehicles.push(v);
       }
 
-      // Check if any vehicle is missing a client_id or owner name, and resolve from service_orders
-      const missingIds = uniqueVehicles
-        .filter((v) => {
-          if (!v.client_id) return true;
-          const hasRelation = Array.isArray(v.clients) ? v.clients.length > 0 : Boolean(v.clients?.name);
-          const hasInClientsList = loadedClients.some((c) => c.id === v.client_id);
-          return !hasRelation && !hasInClientsList;
-        })
-        .map((v) => v.id);
+      // Check if any vehicle is missing a valid owner name, and attempt to resolve from service_orders
+      const missingVehicles = uniqueVehicles.filter((v) => {
+        let name: string | undefined;
+        if (v.clients) {
+          if (Array.isArray(v.clients) && v.clients.length > 0) {
+            name = (v.clients[0] as any)?.name;
+          } else if (typeof v.clients === 'object' && 'name' in v.clients) {
+            name = (v.clients as any).name;
+          }
+        }
+        if (!isValidOwnerName(name) && v.client_id) {
+          const found = loadedClients.find((c) => c.id === v.client_id);
+          if (found?.name && isValidOwnerName(found.name)) name = found.name;
+        }
+        return !isValidOwnerName(name);
+      });
 
-      if (missingIds.length > 0) {
+      if (missingVehicles.length > 0) {
+        const missingIds = missingVehicles.map((v) => v.id);
         const { data: orderData } = await supabase
           .from('service_orders')
           .select('vehicle_id, client_id, clients(id, name)')
@@ -179,13 +204,13 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
             if (item.vehicle_id && item.client_id) {
               const cObj = Array.isArray(item.clients) ? item.clients[0] : item.clients;
               const name = (cObj as any)?.name;
-              if (name) {
+              if (isValidOwnerName(name)) {
                 orderMap.set(item.vehicle_id, { client_id: item.client_id, name });
               }
             }
           }
 
-          for (const v of uniqueVehicles) {
+          for (const v of missingVehicles) {
             const found = orderMap.get(v.id);
             if (found) {
               v.client_id = found.client_id;
