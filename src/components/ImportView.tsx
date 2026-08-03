@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase, clearAllDatabaseData, consolidateDuplicateOrders, type Client, type Vehicle } from '../lib/supabase';
+import { supabase, clearAllDatabaseData, consolidateDuplicateOrders, consolidateDuplicateVehicles, type Client, type Vehicle } from '../lib/supabase';
 import { theme } from '../lib/theme';
 import {
   Upload,
@@ -139,6 +139,18 @@ export default function ImportView() {
       setClearNotice(`Falha ao agrupar O.S.: ${result.message}`);
     }
   };
+
+  const handleConsolidateVehicles = async () => {
+    setConsolidating(true);
+    const result = await consolidateDuplicateVehicles();
+    setConsolidating(false);
+    if (result.success) {
+      setClearNotice(result.message);
+    } else {
+      setClearNotice(`Falha ao agrupar veículos: ${result.message}`);
+    }
+  };
+
 
   // Initial column definitions for mapping
   const getInitialMappings = (type: ImportType): ColumnMapping[] => {

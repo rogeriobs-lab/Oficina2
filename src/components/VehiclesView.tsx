@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase, type Vehicle, type Client } from '@/src/lib/supabase';
+import { supabase, consolidateDuplicateVehicles, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check } from 'lucide-react';
+import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients: Pick<Client, 'name'> };
 
@@ -43,6 +43,55 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
 
   const [clientSearchText, setClientSearchText] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const [isSearchingClients, setIsSearchingClients] = useState(false);
+  const [isConsolidating, setIsConsolidating] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const handleConsolidateVehicles = async () => {
+    setIsConsolidating(true);
+    setNotice(null);
+    try {
+      const res = await consolidateDuplicateVehicles();
+      if (res.mergedCount > 0) {
+        setNotice(res.message);
+      } else {
+        setNotice('Nenhuma placa duplicada encontrada no banco de dados.');
+      }
+      await loadData();
+    } catch (err) {
+      console.error('Erro ao consolidar veículos:', err);
+    } finally {
+      setIsConsolidating(false);
+    }
+  };
+
+  const searchClientsDB = async (searchTerm: string) => {
+    const rawTerm = searchTerm.trim();
+    if (!rawTerm) return;
+    setIsSearchingClients(true);
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, name, phone')
+        .or(`name.ilike.%${rawTerm}%,phone.ilike.%${rawTerm}%`)
+        .order('name')
+        .limit(100);
+
+      if (error) {
+        console.error('Erro ao buscar clientes no banco:', error);
+      } else if (data) {
+        setClients((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id));
+          const newClients = data.filter((c) => !existingIds.has(c.id));
+          return [...prev, ...newClients];
+        });
+      }
+    } catch (err) {
+      console.error('Exceção ao buscar clientes:', err);
+    } finally {
+      setIsSearchingClients(false);
+    }
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -69,8 +118,23 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       if (vehiclesRes.error) throw vehiclesRes.error;
       if (clientsRes.error) console.warn('Erro ao carregar lista de clientes para seleção:', clientsRes.error);
 
-      setVehicles((vehiclesRes.data ?? []) as VehicleRow[]);
-      setTotalCount(vehiclesRes.count ?? vehiclesRes.data?.length ?? 0);
+      const rawVehicles = (vehiclesRes.data ?? []) as VehicleRow[];
+      const uniqueVehicles: VehicleRow[] = [];
+      const seenIds = new Set<string>();
+      const seenPlates = new Set<string>();
+
+      for (const v of rawVehicles) {
+        if (!v || seenIds.has(v.id)) continue;
+        const cleanP = (v.plate || '').replace(/[^A-Z0-9]/g, '').toUpperCase();
+        if (cleanP && seenPlates.has(cleanP)) continue;
+
+        seenIds.add(v.id);
+        if (cleanP) seenPlates.add(cleanP);
+        uniqueVehicles.push(v);
+      }
+
+      setVehicles(uniqueVehicles);
+      setTotalCount(uniqueVehicles.length < rawVehicles.length ? uniqueVehicles.length : (vehiclesRes.count ?? rawVehicles.length));
       setClients((clientsRes.data ?? []) as Client[]);
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar veículos');
@@ -134,14 +198,15 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     try {
       const cleanTargetPlate = formPlate.replace(/[^A-Z0-9]/g, '').toUpperCase();
 
-      // Check for duplicate plate
+      // Check for duplicate plate directly querying database
       const { data: existingPlates, error: checkError } = await supabase
         .from('vehicles')
-        .select('id, plate, clients(name)');
+        .select('id, plate, clients(name)')
+        .ilike('plate', `%${cleanTargetPlate}%`);
 
       if (checkError) throw checkError;
 
-      if (existingPlates) {
+      if (existingPlates && existingPlates.length > 0) {
         const duplicate = existingPlates.find((v: any) => {
           const cleanP = (v.plate || '').replace(/[^A-Z0-9]/g, '').toUpperCase();
           if (cleanP !== cleanTargetPlate) return false;
@@ -184,6 +249,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       setSaving(false);
     }
   };
+
 
   const closeModal = () => {
     setModalVisible(false);
@@ -388,47 +454,89 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                       <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-30 overflow-hidden animate-scale-up">
                         {/* Search input header */}
                         <div className="p-2.5 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
-                          <Search className="w-4 h-4 text-slate-400 shrink-0 ml-1" />
-                          <input
-                            type="text"
-                            value={clientSearchText}
-                            onChange={(e) => setClientSearchText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (filteredClients.length > 0) {
-                                  setFormClientId(filteredClients[0].id);
+                          <div className="relative flex-1 flex items-center">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 shrink-0 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={clientSearchText}
+                              onChange={(e) => setClientSearchText(e.target.value)}
+                              onKeyDown={async (e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  await searchClientsDB(clientSearchText);
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
                                   setIsClientDropdownOpen(false);
-                                  setClientSearchText('');
                                 }
-                              } else if (e.key === 'Escape') {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setIsClientDropdownOpen(false);
-                              }
-                            }}
-                            placeholder="Pesquisar por nome ou telefone..."
-                            className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                            autoFocus
-                          />
-                          {clientSearchText && (
-                            <button
-                              type="button"
-                              onClick={() => setClientSearchText('')}
-                              className="p-1 hover:bg-slate-200 rounded-md text-slate-400 hover:text-slate-600 cursor-pointer"
-                              title="Limpar busca"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                              }}
+                              placeholder="Digite nome ou telefone..."
+                              className="w-full text-xs bg-white border border-slate-200 rounded-lg pl-8 pr-7 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              autoFocus
+                            />
+                            {clientSearchText && (
+                              <button
+                                type="button"
+                                onClick={() => setClientSearchText('')}
+                                className="absolute right-2 p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+                                title="Limpar busca"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => searchClientsDB(clientSearchText)}
+                            disabled={isSearchingClients}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+                          >
+                            {isSearchingClients ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Search className="w-3.5 h-3.5" />
+                            )}
+                            <span>Buscar</span>
+                          </button>
+                        </div>
+
+                        {/* Search Status Header */}
+                        <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+                          {isSearchingClients ? (
+                            <span className="flex items-center gap-1.5 font-medium text-emerald-700">
+                              <Loader2 className="w-3 h-3 animate-spin" /> Buscando no banco de dados...
+                            </span>
+                          ) : (
+                            <span>
+                              {filteredClients.length === 1
+                                ? '1 cliente encontrado'
+                                : `${filteredClients.length} clientes encontrados`}
+                            </span>
                           )}
+                          <span className="text-[10px] text-slate-400">Pressione Enter para buscar</span>
                         </div>
 
                         {/* Scrollable list of clients */}
-                        <div className="max-h-52 overflow-y-auto p-1 divide-y divide-slate-50">
-                          {filteredClients.length === 0 ? (
-                            <div className="p-4 text-center text-xs text-slate-400 font-medium">
-                              Nenhum cliente encontrado com &quot;{clientSearchText}&quot;
+                        <div className="max-h-56 overflow-y-auto p-1 divide-y divide-slate-50">
+                          {filteredClients.length === 0 && !isSearchingClients ? (
+                            <div className="p-4 text-center text-xs text-slate-500">
+                              <p className="font-medium text-slate-700 mb-1">
+                                Nenhum cliente encontrado com &quot;{clientSearchText}&quot;
+                              </p>
+                              <p className="text-[11px] text-slate-400 mb-2">
+                                Verifique a grafia ou pesquise apenas parte do nome.
+                              </p>
+                              {clientSearchText.trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => searchClientsDB(clientSearchText)}
+                                  className="text-emerald-600 hover:text-emerald-700 font-semibold underline text-xs cursor-pointer inline-flex items-center gap-1"
+                                >
+                                  <Search className="w-3 h-3" /> Buscar no servidor
+                                </button>
+                              )}
                             </div>
                           ) : (
                             filteredClients.map((c) => {
@@ -511,7 +619,21 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Veículos</h1>
           <p className="text-slate-500 mt-1">Frota de veículos dos clientes</p>
         </div>
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+        <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={handleConsolidateVehicles}
+            disabled={isConsolidating}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 text-xs sm:text-sm rounded-xl font-bold transition-all cursor-pointer border border-slate-200 shadow-xs"
+            title="Agrupar e apagar placas duplicadas no banco de dados"
+          >
+            {isConsolidating ? (
+              <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+            ) : (
+              <Layers className="w-4 h-4 text-slate-600" />
+            )}
+            <span>Consolidar Duplicados</span>
+          </button>
           {onNavigate && (
             <button
               onClick={() => onNavigate('import', undefined, { searchInput, search, page })}
@@ -531,6 +653,22 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
           </button>
         </div>
       </div>
+
+      {notice && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-900 text-sm font-semibold animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>{notice}</span>
+          </div>
+          <button
+            onClick={() => setNotice(null)}
+            className="p-1 hover:bg-emerald-100 rounded-lg text-emerald-700 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
 
       {/* Search Bar */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">

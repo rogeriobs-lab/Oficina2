@@ -879,3 +879,75 @@ export const consolidateDuplicateOrders = async (): Promise<{ success: boolean; 
     };
   }
 };
+
+export const consolidateDuplicateVehicles = async (): Promise<{ success: boolean; mergedCount: number; message: string }> => {
+  try {
+    const { data: allVehicles, error: fetchErr } = await supabase
+      .from('vehicles')
+      .select('id, plate, client_id, brand, model, year, notes, created_at')
+      .order('created_at', { ascending: true });
+
+    if (fetchErr) throw fetchErr;
+    if (!allVehicles || allVehicles.length === 0) {
+      return { success: true, mergedCount: 0, message: 'Nenhum veículo encontrado no banco de dados.' };
+    }
+
+    const groups = new Map<string, typeof allVehicles>();
+    for (const v of allVehicles) {
+      if (!v.plate) continue;
+      const cleanPlate = v.plate.replace(/[^A-Z0-9]/g, '').toUpperCase();
+      if (!cleanPlate) continue;
+      if (!groups.has(cleanPlate)) {
+        groups.set(cleanPlate, []);
+      }
+      groups.get(cleanPlate)!.push(v);
+    }
+
+    let mergedCount = 0;
+
+    for (const [_, vehicleList] of groups.entries()) {
+      if (vehicleList.length <= 1) continue;
+
+      const primaryVehicle = vehicleList[0];
+      const duplicateVehicleIds = vehicleList.slice(1).map((v) => v.id);
+
+      // Reassign any service_orders linked to duplicate vehicle IDs to primaryVehicle.id
+      const { error: reassignErr } = await supabase
+        .from('service_orders')
+        .update({ vehicle_id: primaryVehicle.id })
+        .in('vehicle_id', duplicateVehicleIds);
+
+      if (reassignErr) {
+        console.error('Erro ao reatribuir O.S. dos veículos duplicados:', reassignErr);
+      }
+
+      // Delete duplicate vehicle records
+      const { error: delErr } = await supabase
+        .from('vehicles')
+        .delete()
+        .in('id', duplicateVehicleIds);
+
+      if (delErr) {
+        console.error('Erro ao apagar veículos duplicados:', delErr);
+      } else {
+        mergedCount += duplicateVehicleIds.length;
+      }
+    }
+
+    return {
+      success: true,
+      mergedCount,
+      message: mergedCount > 0
+        ? `${mergedCount} veículo(s) com placas duplicadas foram consolidados com sucesso!`
+        : 'Nenhum veículo duplicado foi encontrado.',
+    };
+  } catch (err) {
+    console.error('Erro ao consolidar veículos:', err);
+    return {
+      success: false,
+      mergedCount: 0,
+      message: `Erro ao agrupar veículos: ${err instanceof Error ? err.message : 'Erro desconhecido'}`,
+    };
+  }
+};
+
