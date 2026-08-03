@@ -518,7 +518,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                     >
                       <div className="flex items-center gap-2.5 min-w-0 pr-2">
                         <User className="w-4 h-4 text-slate-400 shrink-0" />
-                        {selectedClient ? (
+                        {selectedClient && isValidOwnerName(selectedClient.name) ? (
                           <div className="truncate">
                             <span className="font-semibold text-slate-900">{selectedClient.name}</span>
                             {selectedClient.phone && (
@@ -858,10 +858,25 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <User className="w-4 h-4 text-sky-600 shrink-0" />
-                      <span className="truncate">{getVehicleOwnerName(vehicle)}</span>
-                    </div>
+                    {getVehicleOwnerName(vehicle) !== 'Sem proprietário' ? (
+                      <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <User className="w-4 h-4 text-sky-600 shrink-0" />
+                        <span className="truncate">{getVehicleOwnerName(vehicle)}</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(vehicle)}
+                        className="flex items-center justify-between gap-2 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 p-2.5 rounded-xl border border-amber-200/80 transition-all w-full cursor-pointer group/btn"
+                        title="Clique para vincular o proprietário deste veículo"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <User className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span className="truncate font-bold">Sem proprietário (Clique para vincular)</span>
+                        </div>
+                        <Pencil className="w-3.5 h-3.5 text-amber-600 shrink-0 opacity-70 group-hover/btn:opacity-100" />
+                      </button>
+                    )}
 
                     {vehicle.notes && (
                       <div className="flex items-start gap-2.5 text-xs text-slate-700 bg-amber-50/80 p-3 rounded-xl border border-amber-200/80">
