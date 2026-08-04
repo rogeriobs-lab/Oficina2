@@ -133,8 +133,9 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
       const phoneMatch =
         (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
         normalizeStr(c.phone).includes(normQuery);
+      const notesMatch = normalizeStr(c.notes).includes(normQuery);
 
-      return nameMatch || phoneMatch;
+      return nameMatch || phoneMatch || notesMatch;
     })
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
 
@@ -197,48 +198,89 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
         <div className="absolute left-0 right-0 top-full mt-1.5 z-[100] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-visible max-h-[420px] flex flex-col">
           <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 rounded-t-2xl">
             <span>
-              {activeSearch ? `Buscando por "${activeSearch}"` : 'Selecione o Cliente Proprietário'}
+              {activeSearch ? `Filtro: "${activeSearch}"` : 'Selecione o Cliente Proprietário'}
             </span>
-            <span className="text-emerald-600 font-extrabold">{filteredClients.length} cliente(s)</span>
+            <span className="text-emerald-600 font-extrabold">{filteredClients.length} de {clients.length} cliente(s)</span>
           </div>
 
-          <div className="overflow-y-auto max-h-[350px] divide-y divide-slate-100 p-1.5 pb-20">
+          <div className="overflow-y-auto max-h-[350px] divide-y divide-slate-100 p-1.5 pb-24">
             {filteredClients.length === 0 ? (
-              <div className="p-4 text-center space-y-1">
-                <p className="text-xs font-bold text-slate-700">Nenhum cliente encontrado</p>
+              <div className="p-4 text-center space-y-2">
+                <p className="text-xs font-bold text-slate-700">Nenhum cliente encontrado com "{activeSearch}"</p>
                 <p className="text-[11px] text-slate-400">
-                  Nenhum proprietário atende à busca "{activeSearch}".
+                  Nenhum proprietário atende aos critérios da busca.
                 </p>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setQuery('');
+                    setIsOpen(true);
+                    if (inputRef.current) inputRef.current.focus();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer mt-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Limpar busca para ver todos os {clients.length} clientes
+                </button>
               </div>
             ) : (
-              filteredClients.map((c) => {
-                const isSelected = c.id === selectedClientId;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleSelect(c)}
-                    className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isSelected ? 'bg-emerald-50 text-emerald-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
-                        <User className="w-4 h-4" />
+              <>
+                {filteredClients.map((c) => {
+                  const isSelected = c.id === selectedClientId;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelect(c)}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                        isSelected ? 'bg-emerald-50 text-emerald-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900 truncate">{c.name}</p>
+                          {c.phone && (
+                            <p className="text-[11px] text-slate-500 truncate">{c.phone}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-900 truncate">{c.name}</p>
-                        {c.phone && (
-                          <p className="text-[11px] text-slate-500 truncate">{c.phone}</p>
-                        )}
-                      </div>
-                    </div>
 
-                    {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
-                  </button>
-                );
-              })
+                      {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+
+                {activeSearch && (
+                  <div className="p-3 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                    <p className="text-[11px] text-slate-600 font-medium">
+                      Exibindo <strong className="text-slate-900">{filteredClients.length}</strong> de <strong className="text-slate-900">{clients.length}</strong> clientes para "<span className="font-bold text-emerald-700">{activeSearch}</span>".
+                      {clients.length > filteredClients.length && (
+                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                          ({clients.length - filteredClients.length} clientes restantes não contêm "{activeSearch}")
+                        </span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setQuery('');
+                        setIsOpen(true);
+                        if (inputRef.current) inputRef.current.focus();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5 text-slate-500" />
+                      Limpar filtro para ver todos os {clients.length} clientes
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

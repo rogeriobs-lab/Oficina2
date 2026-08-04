@@ -205,52 +205,93 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
         <div className="absolute left-0 right-0 top-full mt-1.5 z-[100] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-visible max-h-[420px] flex flex-col">
           <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 rounded-t-2xl">
             <span>
-              {activeSearch ? `Buscando por "${activeSearch}"` : 'Selecione a Placa / Veículo'}
+              {activeSearch ? `Filtro: "${activeSearch}"` : 'Selecione a Placa / Veículo'}
             </span>
-            <span className="text-amber-600 font-extrabold">{filteredVehicles.length} veículo(s)</span>
+            <span className="text-amber-600 font-extrabold">{filteredVehicles.length} de {vehicles.length} veículo(s)</span>
           </div>
 
-          <div className="overflow-y-auto max-h-[350px] divide-y divide-slate-100 p-1.5 pb-20">
+          <div className="overflow-y-auto max-h-[350px] divide-y divide-slate-100 p-1.5 pb-24">
             {filteredVehicles.length === 0 ? (
-              <div className="p-4 text-center space-y-1">
-                <p className="text-xs font-bold text-slate-700">Nenhum veículo encontrado</p>
+              <div className="p-4 text-center space-y-2">
+                <p className="text-xs font-bold text-slate-700">Nenhum veículo encontrado com "{activeSearch}"</p>
                 <p className="text-[11px] text-slate-400">
-                  Nenhuma placa ou veículo atende à busca "{activeSearch}".
+                  Nenhuma placa ou veículo atende à busca.
                 </p>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setQuery('');
+                    setIsOpen(true);
+                    if (inputRef.current) inputRef.current.focus();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer mt-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Limpar busca para ver todos os {vehicles.length} veículos
+                </button>
               </div>
             ) : (
-              filteredVehicles.map((v) => {
-                const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
-                const isSelected = v.id === selectedVehicleId;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleSelect(v)}
-                    className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isSelected ? 'bg-amber-50 text-amber-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="font-mono font-black text-xs px-2 py-0.5 bg-slate-900 text-amber-400 rounded border border-slate-800 tracking-wider shrink-0 shadow-xs">
-                        {v.plate}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-900 truncate">
-                          {v.brand} {v.model} {v.year ? `(${v.year})` : ''}
-                        </p>
-                        <p className="text-[11px] text-slate-500 flex items-center gap-1 truncate">
-                          <User className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span>{clientName || 'Sem cliente'}</span>
-                        </p>
+              <>
+                {filteredVehicles.map((v) => {
+                  const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+                  const isSelected = v.id === selectedVehicleId;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelect(v)}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                        isSelected ? 'bg-amber-50 text-amber-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="font-mono font-black text-xs px-2 py-0.5 bg-slate-900 text-amber-400 rounded border border-slate-800 tracking-wider shrink-0 shadow-xs">
+                          {v.plate}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900 truncate">
+                            {v.brand} {v.model} {v.year ? `(${v.year})` : ''}
+                          </p>
+                          <p className="text-[11px] text-slate-500 flex items-center gap-1 truncate">
+                            <User className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>{clientName || 'Sem cliente'}</span>
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    {isSelected && <Check className="w-4 h-4 text-amber-600 shrink-0" />}
-                  </button>
-                );
-              })
+                      {isSelected && <Check className="w-4 h-4 text-amber-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+
+                {activeSearch && (
+                  <div className="p-3 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                    <p className="text-[11px] text-slate-600 font-medium">
+                      Exibindo <strong className="text-slate-900">{filteredVehicles.length}</strong> de <strong className="text-slate-900">{vehicles.length}</strong> veículos para "<span className="font-bold text-amber-700">{activeSearch}</span>".
+                      {vehicles.length > filteredVehicles.length && (
+                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                          ({vehicles.length - filteredVehicles.length} veículos restantes não correspondem ao filtro)
+                        </span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setQuery('');
+                        setIsOpen(true);
+                        if (inputRef.current) inputRef.current.focus();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5 text-slate-500" />
+                      Limpar filtro para ver todos os {vehicles.length} veículos
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
