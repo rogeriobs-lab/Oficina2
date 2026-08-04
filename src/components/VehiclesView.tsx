@@ -1006,20 +1006,6 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         </div>
         <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
           <button
-            type="button"
-            onClick={handleConsolidateVehicles}
-            disabled={isConsolidating}
-            className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 text-xs sm:text-sm rounded-xl font-bold transition-all cursor-pointer border border-slate-200 shadow-xs"
-            title="Agrupar e apagar placas duplicadas no banco de dados"
-          >
-            {isConsolidating ? (
-              <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
-            ) : (
-              <Layers className="w-4 h-4 text-slate-600" />
-            )}
-            <span>Consolidar Duplicados</span>
-          </button>
-          <button
             onClick={openAddModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-white text-xs sm:text-sm rounded-xl font-bold shadow-md hover:opacity-90 transition-all cursor-pointer"
             style={{ backgroundColor: theme.secondary }}
