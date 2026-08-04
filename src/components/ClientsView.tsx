@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, deleteClientAndAssociations, type Client } from '@/src/lib/supabase';
 import { theme, formatPhone } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, User, Phone, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, Loader2 } from 'lucide-react';
+import { Plus, Search, User, Phone, StickyNote, Pencil, Trash2, X, AlertCircle, ChevronLeft, ChevronRight, ClipboardList, Loader2 } from 'lucide-react';
 
 interface ClientsViewProps {
   onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
@@ -356,15 +356,6 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
           <p className="text-slate-500 mt-1">Cadastro de clientes e contatos</p>
         </div>
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
-          {onNavigate && (
-            <button
-              onClick={() => onNavigate('import', undefined, { searchInput, search, page })}
-              className="inline-flex items-center justify-center p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer border border-emerald-200 shadow-xs"
-              title="Importar dados do Access"
-            >
-              <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-            </button>
-          )}
           <button
             onClick={openAddModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-white text-xs sm:text-sm rounded-xl font-bold shadow-md hover:opacity-90 transition-all cursor-pointer"

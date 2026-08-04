@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase, consolidateDuplicateVehicles, deleteVehicleAndAssociations, fetchAllClientsAllPages, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, Car, User, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
+import { Plus, Search, Car, User, StickyNote, Pencil, Trash2, X, AlertCircle, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients?: { name: string } | Array<{ name: string }> | null };
 
@@ -1053,15 +1053,6 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
             )}
             <span>Consolidar Duplicados</span>
           </button>
-          {onNavigate && (
-            <button
-              onClick={() => onNavigate('import', undefined, { searchInput, search, page })}
-              className="inline-flex items-center justify-center p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer border border-emerald-200 shadow-xs"
-              title="Importar dados do Access"
-            >
-              <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-            </button>
-          )}
           <button
             onClick={openAddModal}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-white text-xs sm:text-sm rounded-xl font-bold shadow-md hover:opacity-90 transition-all cursor-pointer"

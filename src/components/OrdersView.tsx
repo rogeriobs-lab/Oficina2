@@ -3,7 +3,7 @@ import { supabase, deleteServiceOrder } from '@/src/lib/supabase';
 import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
 import { computeOrderNumbers } from '@/src/lib/orderUtils';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet, X, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, X, Trash2, Loader2 } from 'lucide-react';
 
 type OrderRow = {
   id: string;
@@ -306,13 +306,6 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
           <p className="text-slate-500 mt-1">Histórico e controle de atendimentos e manutenções</p>
         </div>
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
-          <button
-            onClick={() => onNavigate('import', undefined, { searchInput, search, statusFilter, page })}
-            className="inline-flex items-center justify-center p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-all cursor-pointer border border-emerald-200 shadow-xs"
-            title="Importar Serviços do Access"
-          >
-            <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-          </button>
           <button
             onClick={() => onNavigate('order-new', undefined, { searchInput, search, statusFilter, page })}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-white text-xs sm:text-sm rounded-xl font-bold shadow-md hover:opacity-90 transition-all cursor-pointer"
