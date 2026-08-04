@@ -52,19 +52,21 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
     try {
       setError(null);
 
-      // Helper for fast counts
+      // Helper for exact up-to-date counts
       const getCount = async (table: string, statusFilter?: string) => {
         try {
-          let q = supabase.from(table as any).select('*', { count: 'estimated', head: true });
-          if (statusFilter) q = q.eq('status', statusFilter);
-          const res = await q;
-          if (res.count !== null && res.count !== undefined && res.count > 0) return res.count;
-
-          // Fallback to exact count if estimated is null or 0
           let qExact = supabase.from(table as any).select('*', { count: 'exact', head: true });
           if (statusFilter) qExact = qExact.eq('status', statusFilter);
           const resExact = await qExact;
-          return resExact.count ?? 0;
+          if (resExact.count !== null && resExact.count !== undefined) {
+            return resExact.count;
+          }
+
+          // Fallback to array length if count is null
+          let qData = supabase.from(table as any).select('id');
+          if (statusFilter) qData = qData.eq('status', statusFilter);
+          const resData = await qData;
+          return resData.data?.length ?? 0;
         } catch {
           return 0;
         }
@@ -176,6 +178,15 @@ export default function DashboardView({ onNavigate }: DashboardViewProps) {
                 {todayFormatted}
               </p>
             </div>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-900/80 hover:bg-slate-800 text-slate-200 text-xs font-bold rounded-xl border border-slate-700/80 backdrop-blur-md transition-all cursor-pointer hover:text-white shrink-0 self-start sm:self-auto disabled:opacity-50"
+              title="Atualizar dados do painel"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>{refreshing ? 'Atualizando...' : 'Atualizar'}</span>
+            </button>
           </div>
 
           {/* Quick Action Shortcuts */}
