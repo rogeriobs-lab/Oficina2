@@ -85,21 +85,30 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
     const timer = setTimeout(async () => {
       try {
         setSearchingServer(true);
-        let q = supabase
-          .from('vehicles')
-          .select('*, clients(name)')
-          .order('plate')
-          .limit(100);
+        const resultsMap = new Map<string, VehicleOption>();
 
-        if (cleanTerm && cleanTerm.toLowerCase() !== term.toLowerCase()) {
-          q = q.or(`plate.ilike.%${term}%,plate.ilike.%${cleanTerm}%,brand.ilike.%${term}%,model.ilike.%${term}%`);
-        } else {
-          q = q.or(`plate.ilike.%${term}%,brand.ilike.%${term}%,model.ilike.%${term}%`);
+        const promises: Promise<any>[] = [
+          supabase.from('vehicles').select('*, clients(name)').ilike('plate', `%${term}%`).order('plate').limit(100),
+          supabase.from('vehicles').select('*, clients(name)').ilike('brand', `%${term}%`).order('plate').limit(100),
+          supabase.from('vehicles').select('*, clients(name)').ilike('model', `%${term}%`).order('plate').limit(100),
+        ];
+
+        if (cleanTerm && cleanTerm !== term) {
+          promises.push(
+            supabase.from('vehicles').select('*, clients(name)').ilike('plate', `%${cleanTerm}%`).order('plate').limit(100)
+          );
         }
 
-        const { data, error: qErr } = await q;
-        if (!qErr && data && data.length > 0) {
-          onMergeRemoteVehicles(data as VehicleOption[]);
+        const responses = await Promise.all(promises);
+        responses.forEach((res) => {
+          if (!res.error && res.data) {
+            res.data.forEach((v: VehicleOption) => resultsMap.set(v.id, v));
+          }
+        });
+
+        const combined = Array.from(resultsMap.values());
+        if (combined.length > 0) {
+          onMergeRemoteVehicles(combined);
         }
       } catch {
         // silent catch

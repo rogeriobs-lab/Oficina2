@@ -63,7 +63,7 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
     if (!activeSearch || activeSearch.length < 1 || !onMergeRemoteClients) return;
 
     const term = activeSearch.trim();
-    const cleanTerm = term.replace(/\D/g, '');
+    const cleanPhone = term.replace(/\D/g, '');
     const words = term.split(/\s+/).filter(Boolean);
 
     const timer = setTimeout(async () => {
@@ -71,40 +71,31 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
         setSearchingServer(true);
         const resultsMap = new Map<string, Client>();
 
-        // Query A: phrase match in name or phone (valid standard PostgREST .or syntax)
-        const orParts = [`name.ilike.%${term}%`, `phone.ilike.%${term}%`];
-        if (cleanTerm && cleanTerm.length >= 3) {
-          orParts.push(`phone.ilike.%${cleanTerm}%`);
+        const promises: Promise<any>[] = [
+          supabase.from('clients').select('id, name, phone').ilike('name', `%${term}%`).order('name').limit(100),
+          supabase.from('clients').select('id, name, phone').ilike('phone', `%${term}%`).order('name').limit(100),
+        ];
+
+        if (cleanPhone && cleanPhone.length >= 3 && cleanPhone !== term) {
+          promises.push(
+            supabase.from('clients').select('id, name, phone').ilike('phone', `%${cleanPhone}%`).order('name').limit(100)
+          );
         }
 
-        const { data: dataA, error: errA } = await supabase
-          .from('clients')
-          .select('id, name, phone')
-          .order('name')
-          .limit(100)
-          .or(orParts.join(','));
-
-        if (!errA && dataA) {
-          dataA.forEach((c) => resultsMap.set(c.id, c as Client));
-        }
-
-        // Query B: if term has multiple words (e.g., "Maria Silva"), search each word in name
         if (words.length > 1) {
-          let qB = supabase
-            .from('clients')
-            .select('id, name, phone')
-            .order('name')
-            .limit(100);
-
+          let qWords = supabase.from('clients').select('id, name, phone').order('name').limit(100);
           words.forEach((w) => {
-            qB = qB.ilike('name', `%${w}%`);
+            qWords = qWords.ilike('name', `%${w}%`);
           });
-
-          const { data: dataB, error: errB } = await qB;
-          if (!errB && dataB) {
-            dataB.forEach((c) => resultsMap.set(c.id, c as Client));
-          }
+          promises.push(qWords);
         }
+
+        const responses = await Promise.all(promises);
+        responses.forEach((res) => {
+          if (!res.error && res.data) {
+            res.data.forEach((c: Client) => resultsMap.set(c.id, c));
+          }
+        });
 
         const combined = Array.from(resultsMap.values());
         if (combined.length > 0) {
@@ -127,23 +118,25 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
       .toLowerCase()
       .trim();
 
-  const filteredClients = clients.filter((c) => {
-    if (!isValidName(c.name)) return false;
-    if (!activeSearch) return true;
+  const filteredClients = clients
+    .filter((c) => {
+      if (!isValidName(c.name)) return false;
+      if (!activeSearch) return true;
 
-    const normQuery = normalizeStr(activeSearch);
-    const words = normQuery.split(/\s+/).filter(Boolean);
-    const cName = normalizeStr(c.name);
-    const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
-    const queryDigits = activeSearch.replace(/\D/g, '');
+      const normQuery = normalizeStr(activeSearch);
+      const words = normQuery.split(/\s+/).filter(Boolean);
+      const cName = normalizeStr(c.name);
+      const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
+      const queryDigits = activeSearch.replace(/\D/g, '');
 
-    const nameMatch = words.length > 0 && words.every((w) => cName.includes(w));
-    const phoneMatch =
-      (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
-      normalizeStr(c.phone).includes(normQuery);
+      const nameMatch = words.length > 0 && words.every((w) => cName.includes(w));
+      const phoneMatch =
+        (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
+        normalizeStr(c.phone).includes(normQuery);
 
-    return nameMatch || phoneMatch;
-  });
+      return nameMatch || phoneMatch;
+    })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
 
   const handleSelect = (c: Client) => {
     onSelectClient(c.id);
@@ -407,20 +400,23 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       // Fetch all clients across pages
       let loadedClients: Client[] = [];
       let clientPage = 0;
+      const PAGE_SIZE = 500;
       let hasMoreClients = true;
       while (hasMoreClients) {
         const { data: cData, error: cErr } = await supabase
           .from('clients')
           .select('id, name, phone')
-          .order('name')
-          .range(clientPage * 1000, (clientPage + 1) * 1000 - 1);
+          .order('name', { ascending: true })
+          .order('id', { ascending: true })
+          .range(clientPage * PAGE_SIZE, (clientPage + 1) * PAGE_SIZE - 1);
+
         if (cErr) {
-          console.warn('Erro ao carregar lista de clientes para seleção:', cErr);
+          console.warn('Erro ou fim da lista ao carregar clientes:', cErr.message || cErr);
           break;
         }
         if (cData && cData.length > 0) {
           loadedClients = [...loadedClients, ...(cData as Client[])];
-          if (cData.length < 1000) {
+          if (cData.length < PAGE_SIZE) {
             hasMoreClients = false;
           } else {
             clientPage++;
