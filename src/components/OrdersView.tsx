@@ -59,46 +59,43 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
       if (cleanTerm) {
         isFiltering = true;
 
-        let vRes = await supabase
-          .from('vehicles')
-          .select('id')
-          .or(`plate.ilike.%${cleanTerm}%,brand.ilike.%${cleanTerm}%,model.ilike.%${cleanTerm}%,notes.ilike.%${cleanTerm}%`)
-          .limit(50);
+        const vPromises = [
+          supabase.from('vehicles').select('id').ilike('plate', `%${cleanTerm}%`).limit(100),
+          supabase.from('vehicles').select('id').ilike('brand', `%${cleanTerm}%`).limit(100),
+          supabase.from('vehicles').select('id').ilike('model', `%${cleanTerm}%`).limit(100),
+          supabase.from('vehicles').select('id').ilike('notes', `%${cleanTerm}%`).limit(100),
+        ];
 
-        if (vRes.error && sAlpha) {
-          vRes = await supabase
-            .from('vehicles')
-            .select('id')
-            .ilike('plate', `%${sAlpha}%`)
-            .limit(50);
+        if (sAlpha && sAlpha !== cleanTerm) {
+          vPromises.push(supabase.from('vehicles').select('id').ilike('plate', `%${sAlpha}%`).limit(100));
         }
 
-        if (vRes.data) {
-          matchingVehicleIds = vRes.data.map((v) => v.id);
-        }
+        const cPromises = [
+          supabase.from('clients').select('id').ilike('name', `%${cleanTerm}%`).limit(100),
+          supabase.from('clients').select('id').ilike('phone', `%${cleanTerm}%`).limit(100),
+          supabase.from('clients').select('id').ilike('notes', `%${cleanTerm}%`).limit(100),
+        ];
 
-        if (sAlpha && sAlpha !== cleanTerm && matchingVehicleIds.length < 50) {
-          const alphaRes = await supabase
-            .from('vehicles')
-            .select('id')
-            .ilike('plate', `%${sAlpha}%`)
-            .limit(50);
+        const [vResponses, cResponses] = await Promise.all([
+          Promise.all(vPromises),
+          Promise.all(cPromises),
+        ]);
 
-          if (alphaRes.data) {
-            const extraIds = alphaRes.data.map((v) => v.id);
-            matchingVehicleIds = Array.from(new Set([...matchingVehicleIds, ...extraIds])).slice(0, 50);
+        const vehIdsSet = new Set<string>();
+        vResponses.forEach((res) => {
+          if (!res.error && res.data) {
+            res.data.forEach((v: any) => vehIdsSet.add(v.id));
           }
-        }
+        });
+        matchingVehicleIds = Array.from(vehIdsSet);
 
-        const cRes = await supabase
-          .from('clients')
-          .select('id')
-          .or(`name.ilike.%${cleanTerm}%,notes.ilike.%${cleanTerm}%,phone.ilike.%${cleanTerm}%`)
-          .limit(50);
-
-        if (cRes.data) {
-          matchingClientIds = cRes.data.map((c) => c.id);
-        }
+        const clientIdsSet = new Set<string>();
+        cResponses.forEach((res) => {
+          if (!res.error && res.data) {
+            res.data.forEach((c: any) => clientIdsSet.add(c.id));
+          }
+        });
+        matchingClientIds = Array.from(clientIdsSet);
 
         if (matchingVehicleIds.length === 0 && matchingClientIds.length === 0) {
           setOrders([]);

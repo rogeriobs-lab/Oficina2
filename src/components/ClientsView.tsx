@@ -42,21 +42,49 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
       const from = (page - 1) * pageSize;
       const to = page * pageSize - 1;
 
-      let query = supabase
-        .from('clients')
-        .select('*', { count: 'estimated' })
-        .order('name', { ascending: true });
-
       if (search.trim()) {
-        const term = `%${search.trim()}%`;
-        query = query.or(`name.ilike.${term},notes.ilike.${term},phone.ilike.${term}`);
+        const term = search.trim();
+        const cleanDigits = term.replace(/\D/g, '');
+
+        const promises = [
+          supabase.from('clients').select('*', { count: 'exact' }).ilike('name', `%${term}%`).order('name').range(from, to),
+          supabase.from('clients').select('*', { count: 'exact' }).ilike('phone', `%${term}%`).order('name').range(from, to),
+          supabase.from('clients').select('*', { count: 'exact' }).ilike('notes', `%${term}%`).order('name').range(from, to),
+        ];
+
+        if (cleanDigits && cleanDigits !== term && cleanDigits.length >= 3) {
+          promises.push(
+            supabase.from('clients').select('*', { count: 'exact' }).ilike('phone', `%${cleanDigits}%`).order('name').range(from, to)
+          );
+        }
+
+        const responses = await Promise.all(promises);
+        const resultMap = new Map<string, Client>();
+        let maxCount = 0;
+
+        responses.forEach((res) => {
+          if (!res.error && res.data) {
+            res.data.forEach((c: Client) => resultMap.set(c.id, c));
+            if (res.count && res.count > maxCount) maxCount = res.count;
+          }
+        });
+
+        const results = Array.from(resultMap.values());
+        results.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
+
+        setClients(results);
+        setTotalCount(maxCount || results.length);
+      } else {
+        const { data, error, count } = await supabase
+          .from('clients')
+          .select('*', { count: 'estimated' })
+          .order('name', { ascending: true })
+          .range(from, to);
+
+        if (error) throw error;
+        setClients(data ?? []);
+        setTotalCount(count ?? data?.length ?? 0);
       }
-
-      const { data, error, count } = await query.range(from, to);
-
-      if (error) throw error;
-      setClients(data ?? []);
-      setTotalCount(count ?? data?.length ?? 0);
     } catch (err: any) {
       const msg = err?.message || err?.details || (typeof err === 'string' ? err : 'Erro ao carregar clientes');
       setError(msg);

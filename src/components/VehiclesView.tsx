@@ -387,20 +387,50 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       const from = (page - 1) * pageSize;
       const to = page * pageSize - 1;
 
-      let vehiclesQuery = supabase
-        .from('vehicles')
-        .select('*, clients(name)', { count: 'estimated' })
-        .order('plate');
+      let vehiclesRes: { data: any; error: any; count?: number | null };
 
       if (search.trim()) {
-        const term = `%${search.trim()}%`;
-        vehiclesQuery = vehiclesQuery.or(`plate.ilike.${term},brand.ilike.${term},model.ilike.${term},notes.ilike.${term}`);
+        const term = search.trim();
+        const cleanPlate = term.replace(/[^a-zA-Z0-9]/g, '');
+
+        const promises = [
+          supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('plate', `%${term}%`).order('plate').range(from, to),
+          supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('brand', `%${term}%`).order('plate').range(from, to),
+          supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('model', `%${term}%`).order('plate').range(from, to),
+          supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('notes', `%${term}%`).order('plate').range(from, to),
+        ];
+
+        if (cleanPlate && cleanPlate !== term) {
+          promises.push(
+            supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('plate', `%${cleanPlate}%`).order('plate').range(from, to)
+          );
+        }
+
+        const responses = await Promise.all(promises);
+        const vMap = new Map<string, VehicleRow>();
+        let maxCount = 0;
+
+        responses.forEach((res) => {
+          if (!res.error && res.data) {
+            res.data.forEach((v: VehicleRow) => vMap.set(v.id, v));
+            if (res.count && res.count > maxCount) maxCount = res.count;
+          }
+        });
+
+        const vList = Array.from(vMap.values());
+        vList.sort((a, b) => (a.plate || '').localeCompare(b.plate || '', 'pt-BR', { sensitivity: 'base' }));
+
+        vehiclesRes = { data: vList, error: null, count: maxCount || vList.length };
+      } else {
+        vehiclesRes = await supabase
+          .from('vehicles')
+          .select('*, clients(name)', { count: 'estimated' })
+          .order('plate')
+          .range(from, to);
       }
 
       // Fetch all clients across all pages without PostgREST offset limits
       const loadedClients = await fetchAllClientsAllPages();
-
-      const vehiclesRes = await vehiclesQuery.range(from, to);
 
       if (vehiclesRes.error) throw vehiclesRes.error;
 

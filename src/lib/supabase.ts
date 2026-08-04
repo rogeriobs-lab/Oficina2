@@ -1212,21 +1212,17 @@ export const deleteServiceOrder = async (orderId: string): Promise<{ success: bo
 
 export const fetchAllClientsAllPages = async (): Promise<Client[]> => {
   const all: Client[] = [];
-  let lastId: string | null = null;
+  let page = 0;
+  const pageSize = 1000;
   let hasMore = true;
 
   while (hasMore) {
-    let query = supabase
+    const { data, error } = await supabase
       .from('clients')
       .select('id, name, phone, notes')
-      .order('id', { ascending: true })
-      .limit(1000);
+      .order('created_at', { ascending: false })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
 
-    if (lastId) {
-      query = query.gt('id', lastId);
-    }
-
-    const { data, error } = await query;
     if (error) {
       console.error('Erro ao buscar página de clientes:', error);
       break;
@@ -1234,9 +1230,10 @@ export const fetchAllClientsAllPages = async (): Promise<Client[]> => {
 
     if (data && data.length > 0) {
       all.push(...(data as Client[]));
-      lastId = data[data.length - 1].id;
-      if (data.length < 1000) {
+      if (data.length < pageSize) {
         hasMore = false;
+      } else {
+        page++;
       }
     } else {
       hasMore = false;
@@ -1249,21 +1246,17 @@ export const fetchAllClientsAllPages = async (): Promise<Client[]> => {
 
 export const fetchAllVehiclesAllPages = async (): Promise<any[]> => {
   const all: any[] = [];
-  let lastId: string | null = null;
+  let page = 0;
+  const pageSize = 1000;
   let hasMore = true;
 
   while (hasMore) {
-    let query = supabase
+    const { data, error } = await supabase
       .from('vehicles')
       .select('*, clients(name)')
-      .order('id', { ascending: true })
-      .limit(1000);
+      .order('created_at', { ascending: false })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
 
-    if (lastId) {
-      query = query.gt('id', lastId);
-    }
-
-    const { data, error } = await query;
     if (error) {
       console.error('Erro ao buscar página de veículos:', error);
       break;
@@ -1271,9 +1264,10 @@ export const fetchAllVehiclesAllPages = async (): Promise<any[]> => {
 
     if (data && data.length > 0) {
       all.push(...data);
-      lastId = data[data.length - 1].id;
-      if (data.length < 1000) {
+      if (data.length < pageSize) {
         hasMore = false;
+      } else {
+        page++;
       }
     } else {
       hasMore = false;
