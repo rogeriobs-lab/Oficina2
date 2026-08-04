@@ -38,10 +38,19 @@ interface VehicleComboboxProps {
 
 function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMergeRemoteVehicles, error }: VehicleComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const [query, setQuery] = useState('');
   const [searchingServer, setSearchingServer] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setOpenUpward(spaceBelow < 340);
+    }
+  }, [isOpen]);
 
   // Get current selected vehicle object and its full formatted label
   const selectedVehicle = vehicles.find((item) => item.id === selectedVehicleId);
@@ -202,7 +211,11 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
 
       {/* Dropdown list */}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-[100] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-visible max-h-[420px] flex flex-col">
+        <div
+          className={`absolute left-0 right-0 z-[100] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-visible flex flex-col ${
+            openUpward ? 'bottom-full mb-1.5 max-h-[380px]' : 'top-full mt-1.5 max-h-[420px]'
+          }`}
+        >
           <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 rounded-t-2xl">
             <span>
               {activeSearch ? `Filtro: "${activeSearch}"` : 'Selecione a Placa / Veículo'}
@@ -210,7 +223,7 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
             <span className="text-amber-600 font-extrabold">{filteredVehicles.length} de {vehicles.length} veículo(s)</span>
           </div>
 
-          <div className="overflow-y-auto max-h-[350px] divide-y divide-slate-100 p-1.5 pb-24">
+          <div className="overflow-y-auto max-h-[320px] divide-y divide-slate-100 p-1.5 pb-8">
             {filteredVehicles.length === 0 ? (
               <div className="p-4 text-center space-y-2">
                 <p className="text-xs font-bold text-slate-700">Nenhum veículo encontrado com "{activeSearch}"</p>
