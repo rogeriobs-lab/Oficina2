@@ -111,7 +111,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
         const { data, error, count } = await supabase
           .from('clients')
           .select('*', { count: 'estimated' })
-          .order('name', { ascending: true })
+          .order('created_at', { ascending: false })
           .range(from, to);
 
         if (error) throw error;

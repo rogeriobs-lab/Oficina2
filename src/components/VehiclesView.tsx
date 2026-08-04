@@ -529,7 +529,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         vehiclesRes = await supabase
           .from('vehicles')
           .select('*, clients(name)', { count: 'estimated' })
-          .order('plate')
+          .order('created_at', { ascending: false })
           .range(from, to);
       }
 
