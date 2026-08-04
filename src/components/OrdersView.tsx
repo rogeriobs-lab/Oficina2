@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/src/lib/supabase';
+import { supabase, deleteServiceOrder } from '@/src/lib/supabase';
 import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
 import { computeOrderNumbers } from '@/src/lib/orderUtils';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet, X } from 'lucide-react';
+import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet, X, Trash2 } from 'lucide-react';
 
 type OrderRow = {
   id: string;
@@ -229,6 +229,25 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
     loadOrders();
   }, [loadOrders]);
 
+  const handleDeleteOrder = async (e: React.MouseEvent, order: OrderRow, orderNum: string) => {
+    e.stopPropagation();
+    if (
+      !confirm(
+        `ATENÇÃO: Deseja realmente excluir a Ordem de Serviço #${orderNum} (${order.vehicles?.plate || 'sem placa'})?`
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    const res = await deleteServiceOrder(order.id);
+    if (res.success) {
+      loadOrders();
+    } else {
+      alert(res.message);
+      setLoading(false);
+    }
+  };
+
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
   const filtered = orders.filter((o) => {
@@ -433,13 +452,21 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 border-slate-100 pt-3 md:pt-0 shrink-0">
+                  <div className="flex items-center justify-between md:justify-end gap-3 border-t md:border-t-0 border-slate-100 pt-3 md:pt-0 shrink-0">
                     <div className="md:text-right">
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</p>
                       <p className="text-xl font-black text-slate-950 mt-0.5">
                         {formatCurrency(totalValue)}
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteOrder(e, order, orderNum)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                      title="Excluir Ordem de Serviço"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                     <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-slate-700 group-hover:translate-x-0.5 transition-transform hidden md:block" />
                   </div>
                 </div>

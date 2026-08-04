@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase, type Client } from '@/src/lib/supabase';
+import { supabase, deleteClientAndAssociations, type Client } from '@/src/lib/supabase';
 import { theme, formatPhone } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, User, Phone, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
+import { Plus, Search, User, Phone, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
 
 interface ClientsViewProps {
   onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
@@ -135,6 +135,24 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     setFormNotes('');
     setFormError(null);
     setEditingClient(null);
+  };
+
+  const handleDeleteClientCard = async (client: Client) => {
+    if (
+      !confirm(
+        `ATENÇÃO: Deseja realmente excluir o cliente "${client.name}"?\n\nTodos os veículos e ordens de serviço associados a este cliente também serão totalmente excluídos.`
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    const res = await deleteClientAndAssociations(client.id);
+    if (res.success) {
+      loadClients();
+    } else {
+      alert(res.message);
+      setLoading(false);
+    }
   };
 
   const filtered = clients.filter(
@@ -346,13 +364,22 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => openEditModal(client)}
-                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
-                        title="Editar cliente"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditModal(client)}
+                          className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                          title="Editar cliente"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClientCard(client)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                          title="Excluir cliente"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-2 pt-1 border-t border-slate-100">

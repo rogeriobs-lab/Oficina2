@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase, consolidateDuplicateVehicles, type Vehicle, type Client } from '@/src/lib/supabase';
+import { supabase, consolidateDuplicateVehicles, deleteVehicleAndAssociations, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, Car, User, StickyNote, Pencil, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
+import { Plus, Search, Car, User, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients?: { name: string } | Array<{ name: string }> | null };
 
@@ -357,6 +357,24 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setEditingVehicle(null);
     setClientSearchText('');
     setIsClientDropdownOpen(false);
+  };
+
+  const handleDeleteVehicleCard = async (vehicle: VehicleRow) => {
+    if (
+      !confirm(
+        `ATENÇÃO: Deseja realmente excluir o veículo "${vehicle.plate} - ${vehicle.brand} ${vehicle.model}"?\n\nTodas as ordens de serviço vinculadas a este veículo/placa também serão totalmente removidas.`
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    const res = await deleteVehicleAndAssociations(vehicle.id);
+    if (res.success) {
+      loadData();
+    } else {
+      alert(res.message);
+      setLoading(false);
+    }
   };
 
   const normalizeStr = (str?: string | null) =>
@@ -845,13 +863,22 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                       </span>
                     </div>
 
-                    <button
-                      onClick={() => openEditModal(vehicle)}
-                      className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
-                      title="Editar veículo"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openEditModal(vehicle)}
+                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                        title="Editar veículo"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteVehicleCard(vehicle)}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                        title="Excluir veículo"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-2.5">

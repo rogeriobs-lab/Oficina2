@@ -1105,10 +1105,39 @@ export const deleteClientAndAssociations = async (clientId: string): Promise<{ s
 
 export const deleteVehicleAndAssociations = async (vehicleId: string): Promise<{ success: boolean; message: string }> => {
   try {
+    // 1. Fetch target vehicle info to get its plate
+    const { data: targetVehicle } = await supabase
+      .from('vehicles')
+      .select('id, plate')
+      .eq('id', vehicleId);
+
+    const targetObj = Array.isArray(targetVehicle) ? targetVehicle[0] : targetVehicle;
+    const targetPlate = targetObj?.plate || '';
+    const cleanTargetPlate = targetPlate.replace(/[^A-Z0-9]/g, '').toUpperCase();
+
+    // 2. Fetch all vehicles to find all matching vehicle IDs with the same clean plate
+    const { data: allVehicles } = await supabase
+      .from('vehicles')
+      .select('id, plate');
+
+    const matchingVehicleIds = new Set<string>([vehicleId]);
+    if (allVehicles) {
+      for (const v of allVehicles) {
+        if (!v || !v.plate) continue;
+        const cp = v.plate.replace(/[^A-Z0-9]/g, '').toUpperCase();
+        if (cp && cleanTargetPlate && cp === cleanTargetPlate) {
+          matchingVehicleIds.add(v.id);
+        }
+      }
+    }
+
+    const allVehicleIds = Array.from(matchingVehicleIds);
+
+    // 3. Find all service orders for these vehicle IDs
     const { data: vOrders } = await supabase
       .from('service_orders')
       .select('id')
-      .eq('vehicle_id', vehicleId);
+      .in('vehicle_id', allVehicleIds);
 
     const orderIds = (vOrders || []).map((o: any) => o.id);
 
@@ -1116,22 +1145,37 @@ export const deleteVehicleAndAssociations = async (vehicleId: string): Promise<{
       await supabase.from('order_items').delete().in('order_id', orderIds);
       await supabase.from('service_orders').delete().in('id', orderIds);
     }
-    await supabase.from('service_orders').delete().eq('vehicle_id', vehicleId);
+    await supabase.from('service_orders').delete().in('vehicle_id', allVehicleIds);
 
-    await supabase.from('vehicles').delete().eq('id', vehicleId);
+    // Delete from vehicles table
+    await supabase.from('vehicles').delete().in('id', allVehicleIds);
+    if (targetPlate) {
+      await supabase.from('vehicles').delete().eq('plate', targetPlate);
+    }
 
+    // Synchronize local storage mock
     const items = getStorageItem<any[]>('oficinapro_order_items', []);
     setStorageItem('oficinapro_order_items', items.filter((i) => !orderIds.includes(i.order_id)));
 
     const orders = getStorageItem<any[]>('oficinapro_service_orders', []);
-    setStorageItem('oficinapro_service_orders', orders.filter((o) => o.vehicle_id !== vehicleId && !orderIds.includes(o.id)));
+    setStorageItem('oficinapro_service_orders', orders.filter((o) => !allVehicleIds.includes(o.vehicle_id) && !orderIds.includes(o.id)));
 
     const vehicles = getStorageItem<any[]>('oficinapro_vehicles', []);
-    setStorageItem('oficinapro_vehicles', vehicles.filter((v) => v.id !== vehicleId));
+    setStorageItem(
+      'oficinapro_vehicles',
+      vehicles.filter((v) => {
+        if (allVehicleIds.includes(v.id)) return false;
+        if (v.plate && cleanTargetPlate) {
+          const cp = v.plate.replace(/[^A-Z0-9]/g, '').toUpperCase();
+          if (cp === cleanTargetPlate) return false;
+        }
+        return true;
+      })
+    );
 
     return {
       success: true,
-      message: `Veículo e seus ${orderIds.length} serviço(s) associado(s) foram excluídos com sucesso.`,
+      message: `Veículo (${targetPlate || cleanTargetPlate || 'placa'}) e seus ${orderIds.length} serviço(s) associado(s) foram excluídos com sucesso.`,
     };
   } catch (err: any) {
     console.error('Erro ao excluir veículo e associações:', err);
