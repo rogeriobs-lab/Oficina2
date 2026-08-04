@@ -135,6 +135,7 @@ function MainApp() {
           <OrderNewView
             onBack={goBack}
             onNavigateToOrderDetails={(id) => navigateTo('order-details', { id })}
+            preselectedVehicleId={currentView.params?.vehicleId}
           />
         );
       default:

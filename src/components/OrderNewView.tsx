@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase, type Client, type Vehicle } from '@/src/lib/supabase';
 import { theme, formatCurrency } from '@/src/lib/theme';
 import { LoadingState, ErrorState } from './States';
@@ -13,6 +13,10 @@ import {
   AlertCircle,
   Clock,
   Gauge,
+  Search,
+  Check,
+  User,
+  Car,
 } from 'lucide-react';
 
 type ItemDraft = {
@@ -24,12 +28,184 @@ type ItemDraft = {
 
 type VehicleOption = Vehicle & { clients: Pick<Client, 'name'> };
 
+interface VehicleComboboxProps {
+  vehicles: VehicleOption[];
+  selectedVehicleId: string;
+  onSelectVehicle: (vehicleId: string) => void;
+  error?: string | null;
+}
+
+function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }: VehicleComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Sync searchQuery when selectedVehicleId changes
+  useEffect(() => {
+    if (selectedVehicleId) {
+      const v = vehicles.find((item) => item.id === selectedVehicleId);
+      if (v) {
+        const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+        setSearchQuery(`${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`);
+      }
+    } else {
+      setSearchQuery('');
+    }
+  }, [selectedVehicleId, vehicles]);
+
+  // Click outside listener
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        // Restore title of selected vehicle if valid
+        if (selectedVehicleId) {
+          const v = vehicles.find((item) => item.id === selectedVehicleId);
+          if (v) {
+            const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+            setSearchQuery(`${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`);
+          }
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedVehicleId, vehicles]);
+
+  // Filter vehicles matching plate, brand, model or client
+  const filteredVehicles = vehicles.filter((v) => {
+    if (!searchQuery.trim()) return true;
+    const rawQuery = searchQuery.toLowerCase().trim();
+    const cleanQuery = rawQuery.replace(/[^a-z0-9]/g, '');
+
+    const plateRaw = v.plate ? v.plate.toLowerCase() : '';
+    const plateClean = plateRaw.replace(/[^a-z0-9]/g, '');
+
+    const brand = v.brand ? v.brand.toLowerCase() : '';
+    const model = v.model ? v.model.toLowerCase() : '';
+    const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+    const client = clientName ? clientName.toLowerCase() : '';
+
+    return (
+      plateRaw.includes(rawQuery) ||
+      (cleanQuery !== '' && plateClean.includes(cleanQuery)) ||
+      brand.includes(rawQuery) ||
+      model.includes(rawQuery) ||
+      client.includes(rawQuery)
+    );
+  });
+
+  const handleSelect = (v: VehicleOption) => {
+    onSelectVehicle(v.id);
+    const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+    setSearchQuery(`${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`);
+    setIsOpen(false);
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelectVehicle('');
+    setSearchQuery('');
+    setIsOpen(true);
+  };
+
+  return (
+    <div ref={containerRef} className="relative space-y-1">
+      <div className="relative flex items-center">
+        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Digite a placa (ex: KMH2162), modelo ou cliente..."
+          value={searchQuery}
+          onFocus={() => setIsOpen(true)}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setIsOpen(true);
+            if (selectedVehicleId) {
+              onSelectVehicle('');
+            }
+          }}
+          className={`block w-full pl-10 pr-10 py-2.5 bg-gray-50 border rounded-xl text-gray-900 text-sm transition-all outline-none font-medium ${
+            isOpen ? 'bg-white border-amber-500 ring-2 ring-amber-500/20 shadow-xs' : 'border-gray-200 hover:border-gray-300'
+          } ${error ? 'border-red-400 bg-red-50/50' : ''}`}
+        />
+        {searchQuery ? (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg absolute right-3 cursor-pointer"
+            title="Limpar busca de veículo"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 pointer-events-none" />
+        )}
+      </div>
+
+      {/* Dropdown list */}
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden max-h-72 flex flex-col">
+          <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+            <span>Selecione a Placa / Veículo</span>
+            <span className="text-amber-600 font-extrabold">{filteredVehicles.length} veículo(s)</span>
+          </div>
+
+          <div className="overflow-y-auto divide-y divide-slate-100 p-1">
+            {filteredVehicles.length === 0 ? (
+              <div className="p-4 text-center space-y-1">
+                <p className="text-xs font-bold text-slate-700">Nenhum veículo encontrado</p>
+                <p className="text-[11px] text-slate-400">
+                  Nenhuma placa ou veículo atende ao filtro "{searchQuery}".
+                </p>
+              </div>
+            ) : (
+              filteredVehicles.map((v) => {
+                const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+                const isSelected = v.id === selectedVehicleId;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => handleSelect(v)}
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                      isSelected ? 'bg-amber-50 text-amber-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="font-mono font-black text-xs px-2 py-0.5 bg-slate-900 text-amber-400 rounded border border-slate-800 tracking-wider shrink-0 shadow-xs">
+                        {v.plate}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate">
+                          {v.brand} {v.model} {v.year ? `(${v.year})` : ''}
+                        </p>
+                        <p className="text-[11px] text-slate-500 flex items-center gap-1 truncate">
+                          <User className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{clientName || 'Sem cliente'}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {isSelected && <Check className="w-4 h-4 text-amber-600 shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface OrderNewViewProps {
   onBack: () => void;
   onNavigateToOrderDetails: (id: string) => void;
+  preselectedVehicleId?: string;
 }
 
-export default function OrderNewView({ onBack, onNavigateToOrderDetails }: OrderNewViewProps) {
+export default function OrderNewView({ onBack, onNavigateToOrderDetails, preselectedVehicleId }: OrderNewViewProps) {
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,14 +228,18 @@ export default function OrderNewView({ onBack, onNavigateToOrderDetails }: Order
       const options = (data ?? []) as VehicleOption[];
       setVehicles(options);
       if (options.length > 0) {
-        setSelectedVehicleId(options[0].id);
+        if (preselectedVehicleId && options.some((v) => v.id === preselectedVehicleId)) {
+          setSelectedVehicleId(preselectedVehicleId);
+        } else {
+          setSelectedVehicleId(options[0].id);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar veículos');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [preselectedVehicleId]);
 
   useEffect(() => {
     loadVehicles();
@@ -194,20 +374,17 @@ export default function OrderNewView({ onBack, onNavigateToOrderDetails }: Order
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1 md:col-span-1.5">
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Veículo *
+                  Veículo * <span className="text-xs font-normal text-slate-400">(digite a placa para buscar)</span>
                 </label>
-                <select
-                  required
-                  value={selectedVehicleId}
-                  onChange={(e) => setSelectedVehicleId(e.target.value)}
-                  className="block w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm focus:bg-white focus:border-amber-500 transition-all outline-none cursor-pointer"
-                >
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.plate} · {v.brand} {v.model} — {v.clients?.name}
-                    </option>
-                  ))}
-                </select>
+                <VehicleCombobox
+                  vehicles={vehicles}
+                  selectedVehicleId={selectedVehicleId}
+                  onSelectVehicle={(id) => {
+                    setSelectedVehicleId(id);
+                    if (formError) setFormError(null);
+                  }}
+                  error={formError && !selectedVehicleId ? formError : null}
+                />
               </div>
 
               <div className="space-y-1">
