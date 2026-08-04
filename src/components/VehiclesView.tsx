@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { supabase, consolidateDuplicateVehicles, deleteVehicleAndAssociations, type Vehicle, type Client } from '@/src/lib/supabase';
+import { supabase, consolidateDuplicateVehicles, deleteVehicleAndAssociations, fetchAllClientsAllPages, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
 import { Plus, Search, Car, User, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
@@ -397,34 +397,8 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         vehiclesQuery = vehiclesQuery.or(`plate.ilike.${term},brand.ilike.${term},model.ilike.${term},notes.ilike.${term}`);
       }
 
-      // Fetch all clients across pages
-      let loadedClients: Client[] = [];
-      let clientPage = 0;
-      const PAGE_SIZE = 500;
-      let hasMoreClients = true;
-      while (hasMoreClients) {
-        const { data: cData, error: cErr } = await supabase
-          .from('clients')
-          .select('id, name, phone')
-          .order('name', { ascending: true })
-          .order('id', { ascending: true })
-          .range(clientPage * PAGE_SIZE, (clientPage + 1) * PAGE_SIZE - 1);
-
-        if (cErr) {
-          console.warn('Erro ou fim da lista ao carregar clientes:', cErr.message || cErr);
-          break;
-        }
-        if (cData && cData.length > 0) {
-          loadedClients = [...loadedClients, ...(cData as Client[])];
-          if (cData.length < PAGE_SIZE) {
-            hasMoreClients = false;
-          } else {
-            clientPage++;
-          }
-        } else {
-          hasMoreClients = false;
-        }
-      }
+      // Fetch all clients across all pages without PostgREST offset limits
+      const loadedClients = await fetchAllClientsAllPages();
 
       const vehiclesRes = await vehiclesQuery.range(from, to);
 

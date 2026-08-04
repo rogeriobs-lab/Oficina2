@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { supabase, type Client, type Vehicle } from '@/src/lib/supabase';
+import { supabase, fetchAllVehiclesAllPages, type Client, type Vehicle } from '@/src/lib/supabase';
 import { theme, formatCurrency } from '@/src/lib/theme';
 import { LoadingState, ErrorState } from './States';
 import {
@@ -289,31 +289,7 @@ export default function OrderNewView({ onBack, onNavigateToOrderDetails, presele
   const loadVehicles = useCallback(async () => {
     try {
       setLoading(true);
-      let allVehicles: VehicleOption[] = [];
-      let page = 0;
-      const PAGE_SIZE = 1000;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error: fetchErr } = await supabase
-          .from('vehicles')
-          .select('*, clients(name)')
-          .order('plate')
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-        if (fetchErr) throw fetchErr;
-
-        if (data && data.length > 0) {
-          allVehicles = [...allVehicles, ...(data as VehicleOption[])];
-          if (data.length < PAGE_SIZE) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
+      const allVehicles: VehicleOption[] = await fetchAllVehiclesAllPages();
 
       setVehicles(allVehicles);
       if (allVehicles.length > 0 && preselectedVehicleId && allVehicles.some((v) => v.id === preselectedVehicleId)) {

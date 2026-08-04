@@ -1210,3 +1210,77 @@ export const deleteServiceOrder = async (orderId: string): Promise<{ success: bo
   }
 };
 
+export const fetchAllClientsAllPages = async (): Promise<Client[]> => {
+  const all: Client[] = [];
+  let lastId: string | null = null;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = supabase
+      .from('clients')
+      .select('id, name, phone, notes')
+      .order('id', { ascending: true })
+      .limit(1000);
+
+    if (lastId) {
+      query = query.gt('id', lastId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('Erro ao buscar página de clientes:', error);
+      break;
+    }
+
+    if (data && data.length > 0) {
+      all.push(...(data as Client[]));
+      lastId = data[data.length - 1].id;
+      if (data.length < 1000) {
+        hasMore = false;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+
+  all.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
+  return all;
+};
+
+export const fetchAllVehiclesAllPages = async (): Promise<any[]> => {
+  const all: any[] = [];
+  let lastId: string | null = null;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = supabase
+      .from('vehicles')
+      .select('*, clients(name)')
+      .order('id', { ascending: true })
+      .limit(1000);
+
+    if (lastId) {
+      query = query.gt('id', lastId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('Erro ao buscar página de veículos:', error);
+      break;
+    }
+
+    if (data && data.length > 0) {
+      all.push(...data);
+      lastId = data[data.length - 1].id;
+      if (data.length < 1000) {
+        hasMore = false;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+
+  all.sort((a, b) => (a.plate || '').localeCompare(b.plate || '', 'pt-BR', { sensitivity: 'base' }));
+  return all;
+};
+

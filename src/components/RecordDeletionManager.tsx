@@ -3,6 +3,8 @@ import {
   deleteClientAndAssociations,
   deleteVehicleAndAssociations,
   deleteServiceOrder,
+  fetchAllClientsAllPages,
+  fetchAllVehiclesAllPages,
   supabase,
 } from '../lib/supabase';
 import {
@@ -88,17 +90,11 @@ export default function RecordDeletionManager() {
     setLoadingData(true);
     try {
       // Fetch Clients
-      const { data: clientData } = await supabase
-        .from('clients')
-        .select('id, name, phone')
-        .order('name');
+      const clientData = await fetchAllClientsAllPages();
       setClients(clientData || []);
 
       // Fetch Vehicles
-      const { data: vehData } = await supabase
-        .from('vehicles')
-        .select('id, plate, brand, model, year, client_id, clients(name)')
-        .order('plate');
+      const vehData = await fetchAllVehiclesAllPages();
 
       const mappedVehicles: VehicleItem[] = (vehData || []).map((v: any) => {
         let cName = 'Sem proprietário';
