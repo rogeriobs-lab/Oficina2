@@ -261,7 +261,6 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
             <span>
               {activeSearch ? `Filtro: "${activeSearch}"` : 'Selecione a Placa / Veículo'}
             </span>
-            <span className="text-amber-600 font-extrabold">{filteredVehicles.length} de {vehicles.length} veículo(s)</span>
           </div>
 
           <div className="overflow-y-auto max-h-[320px] divide-y divide-slate-100 p-1.5 pb-8">
@@ -271,19 +270,6 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
                 <p className="text-[11px] text-slate-400">
                   Nenhuma placa ou veículo atende à busca.
                 </p>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    setQuery('');
-                    setIsOpen(true);
-                    if (inputRef.current) inputRef.current.focus();
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer mt-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  Limpar busca para ver todos os {vehicles.length} veículos
-                </button>
               </div>
             ) : (
               <>
@@ -321,28 +307,10 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
                 })}
 
                 {activeSearch && (
-                  <div className="p-3 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                  <div className="p-2.5 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center">
                     <p className="text-[11px] text-slate-600 font-medium">
-                      Exibindo <strong className="text-slate-900">{filteredVehicles.length}</strong> de <strong className="text-slate-900">{vehicles.length}</strong> veículos para "<span className="font-bold text-amber-700">{activeSearch}</span>".
-                      {vehicles.length > filteredVehicles.length && (
-                        <span className="block text-[10px] text-slate-400 mt-0.5">
-                          ({vehicles.length - filteredVehicles.length} veículos restantes não correspondem ao filtro)
-                        </span>
-                      )}
+                      Exibindo <strong className="text-slate-900">{filteredVehicles.length}</strong> de <strong className="text-slate-900">{vehicles.length}</strong> veículos para "<span className="font-bold text-slate-700">{activeSearch}</span>".
                     </p>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setQuery('');
-                        setIsOpen(true);
-                        if (inputRef.current) inputRef.current.focus();
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5 text-slate-500" />
-                      Limpar filtro para ver todos os {vehicles.length} veículos
-                    </button>
                   </div>
                 )}
               </>

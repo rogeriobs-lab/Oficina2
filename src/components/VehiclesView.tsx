@@ -255,9 +255,6 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
             <span>
               {activeSearch ? `Filtro: "${activeSearch}"` : 'Selecione o Cliente Proprietário'}
             </span>
-            <span className="text-emerald-600 font-extrabold">
-              {filteredClients.length} cliente(s) {activeSearch ? `de ${clients.length}` : '(A-Z)'}
-            </span>
           </div>
 
           <div className="overflow-y-auto max-h-[320px] divide-y divide-slate-100 p-1.5 pb-8">
@@ -267,19 +264,6 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
                 <p className="text-[11px] text-slate-400">
                   Nenhum proprietário atende aos critérios da busca.
                 </p>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    setQuery('');
-                    setIsOpen(true);
-                    if (inputRef.current) inputRef.current.focus();
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer mt-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  Limpar busca para ver todos os {clients.length} clientes
-                </button>
               </div>
             ) : (
               <>
@@ -326,28 +310,10 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
                 )}
 
                 {activeSearch && (
-                  <div className="p-3 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
+                  <div className="p-2.5 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center">
                     <p className="text-[11px] text-slate-600 font-medium">
-                      Exibindo <strong className="text-slate-900">{filteredClients.length}</strong> de <strong className="text-slate-900">{clients.length}</strong> clientes para "<span className="font-bold text-emerald-700">{activeSearch}</span>".
-                      {clients.length > filteredClients.length && (
-                        <span className="block text-[10px] text-slate-400 mt-0.5">
-                          ({clients.length - filteredClients.length} clientes restantes não contêm "{activeSearch}")
-                        </span>
-                      )}
+                      Exibindo <strong className="text-slate-900">{filteredClients.length}</strong> de <strong className="text-slate-900">{clients.length}</strong> clientes para "<span className="font-bold text-slate-700">{activeSearch}</span>".
                     </p>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setQuery('');
-                        setIsOpen(true);
-                        if (inputRef.current) inputRef.current.focus();
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5 text-slate-500" />
-                      Limpar filtro para ver todos os {clients.length} clientes
-                    </button>
                   </div>
                 )}
               </>
