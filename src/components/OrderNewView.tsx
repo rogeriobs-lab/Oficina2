@@ -32,12 +32,14 @@ interface VehicleComboboxProps {
   vehicles: VehicleOption[];
   selectedVehicleId: string;
   onSelectVehicle: (vehicleId: string) => void;
+  onMergeRemoteVehicles?: (remoteVehicles: VehicleOption[]) => void;
   error?: string | null;
 }
 
-function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }: VehicleComboboxProps) {
+function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMergeRemoteVehicles, error }: VehicleComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [searchingServer, setSearchingServer] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -70,9 +72,44 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
   }, [selectedLabel]);
 
   // Determine active search filter string
-  // If user focused the input and query equals selectedLabel, filter is empty (show ALL vehicles)
   const isSelectedString = Boolean(selectedVehicleId && query === selectedLabel);
   const activeSearch = isSelectedString ? '' : query.trim();
+
+  // Perform live server query when activeSearch is typed
+  useEffect(() => {
+    if (!activeSearch || activeSearch.length < 1 || !onMergeRemoteVehicles) return;
+
+    const term = activeSearch.trim();
+    const cleanTerm = term.replace(/[^a-zA-Z0-9]/g, '');
+
+    const timer = setTimeout(async () => {
+      try {
+        setSearchingServer(true);
+        let q = supabase
+          .from('vehicles')
+          .select('*, clients(name)')
+          .order('plate')
+          .limit(100);
+
+        if (cleanTerm && cleanTerm.toLowerCase() !== term.toLowerCase()) {
+          q = q.or(`plate.ilike.%${term}%,plate.ilike.%${cleanTerm}%,brand.ilike.%${term}%,model.ilike.%${term}%`);
+        } else {
+          q = q.or(`plate.ilike.%${term}%,brand.ilike.%${term}%,model.ilike.%${term}%`);
+        }
+
+        const { data, error: qErr } = await q;
+        if (!qErr && data && data.length > 0) {
+          onMergeRemoteVehicles(data as VehicleOption[]);
+        }
+      } catch {
+        // silent catch
+      } finally {
+        setSearchingServer(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [activeSearch, onMergeRemoteVehicles]);
 
   // Filter vehicles matching plate (raw and cleaned), brand, model or client
   const filteredVehicles = vehicles.filter((v) => {
@@ -138,7 +175,9 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
             isOpen ? 'bg-white border-amber-500 ring-2 ring-amber-500/20 shadow-xs' : 'border-gray-200 hover:border-gray-300'
           } ${error ? 'border-red-400 bg-red-50/50' : ''}`}
         />
-        {query ? (
+        {searchingServer ? (
+          <div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin absolute right-3 pointer-events-none" />
+        ) : query ? (
           <button
             type="button"
             onClick={handleClear}
@@ -229,18 +268,46 @@ export default function OrderNewView({ onBack, onNavigateToOrderDetails, presele
   const [mileage, setMileage] = useState('');
   const [items, setItems] = useState<ItemDraft[]>([]);
 
+  const handleMergeRemoteVehicles = useCallback((remoteList: VehicleOption[]) => {
+    setVehicles((prev) => {
+      const existingIds = new Set(prev.map((v) => v.id));
+      const newItems = remoteList.filter((v) => !existingIds.has(v.id));
+      if (newItems.length === 0) return prev;
+      return [...prev, ...newItems];
+    });
+  }, []);
+
   const loadVehicles = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('vehicles')
-        .select('*, clients(name)')
-        .order('plate')
-        .range(0, 4999);
-      if (error) throw error;
-      const options = (data ?? []) as VehicleOption[];
-      setVehicles(options);
-      if (options.length > 0 && preselectedVehicleId && options.some((v) => v.id === preselectedVehicleId)) {
+      let allVehicles: VehicleOption[] = [];
+      let page = 0;
+      const PAGE_SIZE = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error: fetchErr } = await supabase
+          .from('vehicles')
+          .select('*, clients(name)')
+          .order('plate')
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+        if (fetchErr) throw fetchErr;
+
+        if (data && data.length > 0) {
+          allVehicles = [...allVehicles, ...(data as VehicleOption[])];
+          if (data.length < PAGE_SIZE) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      setVehicles(allVehicles);
+      if (allVehicles.length > 0 && preselectedVehicleId && allVehicles.some((v) => v.id === preselectedVehicleId)) {
         setSelectedVehicleId(preselectedVehicleId);
       } else {
         setSelectedVehicleId('');
@@ -394,6 +461,7 @@ export default function OrderNewView({ onBack, onNavigateToOrderDetails, presele
                     setSelectedVehicleId(id);
                     if (formError) setFormError(null);
                   }}
+                  onMergeRemoteVehicles={handleMergeRemoteVehicles}
                   error={formError && !selectedVehicleId ? formError : null}
                 />
               </div>
