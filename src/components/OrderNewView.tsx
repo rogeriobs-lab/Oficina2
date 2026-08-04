@@ -37,54 +37,56 @@ interface VehicleComboboxProps {
 
 function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }: VehicleComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sync searchQuery when selectedVehicleId changes
+  // Get current selected vehicle object and its full formatted label
+  const selectedVehicle = vehicles.find((item) => item.id === selectedVehicleId);
+  const getVehicleLabel = (v: VehicleOption) => {
+    const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
+    return `${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`;
+  };
+
+  const selectedLabel = selectedVehicle ? getVehicleLabel(selectedVehicle) : '';
+
+  // Sync display text when selectedVehicleId changes
   useEffect(() => {
-    if (selectedVehicleId) {
-      const v = vehicles.find((item) => item.id === selectedVehicleId);
-      if (v) {
-        const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
-        setSearchQuery(`${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`);
-      }
-    } else {
-      setSearchQuery('');
+    if (!isOpen) {
+      setQuery(selectedLabel);
     }
-  }, [selectedVehicleId, vehicles]);
+  }, [selectedVehicleId, selectedLabel, isOpen]);
 
   // Click outside listener
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setIsOpen(false);
-        // Restore title of selected vehicle if valid
-        if (selectedVehicleId) {
-          const v = vehicles.find((item) => item.id === selectedVehicleId);
-          if (v) {
-            const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
-            setSearchQuery(`${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`);
-          }
-        }
+        setQuery(selectedLabel);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedVehicleId, vehicles]);
+  }, [selectedLabel]);
 
-  // Filter vehicles matching plate, brand, model or client
+  // Determine active search filter string
+  // If user focused the input and query equals selectedLabel, filter is empty (show ALL vehicles)
+  const isSelectedString = Boolean(selectedVehicleId && query === selectedLabel);
+  const activeSearch = isSelectedString ? '' : query.trim();
+
+  // Filter vehicles matching plate (raw and cleaned), brand, model or client
   const filteredVehicles = vehicles.filter((v) => {
-    if (!searchQuery.trim()) return true;
-    const rawQuery = searchQuery.toLowerCase().trim();
+    if (!activeSearch) return true;
+    const rawQuery = activeSearch.toLowerCase();
     const cleanQuery = rawQuery.replace(/[^a-z0-9]/g, '');
 
-    const plateRaw = v.plate ? v.plate.toLowerCase() : '';
+    const plateRaw = (v.plate || '').toLowerCase();
     const plateClean = plateRaw.replace(/[^a-z0-9]/g, '');
 
-    const brand = v.brand ? v.brand.toLowerCase() : '';
-    const model = v.model ? v.model.toLowerCase() : '';
+    const brand = (v.brand || '').toLowerCase();
+    const model = (v.model || '').toLowerCase();
     const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
-    const client = clientName ? clientName.toLowerCase() : '';
+    const client = (clientName || '').toLowerCase();
 
     return (
       plateRaw.includes(rawQuery) ||
@@ -97,16 +99,16 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
 
   const handleSelect = (v: VehicleOption) => {
     onSelectVehicle(v.id);
-    const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
-    setSearchQuery(`${v.plate} · ${v.brand} ${v.model}${clientName ? ` — ${clientName}` : ''}`);
+    setQuery(getVehicleLabel(v));
     setIsOpen(false);
   };
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSelectVehicle('');
-    setSearchQuery('');
+    setQuery('');
     setIsOpen(true);
+    inputRef.current?.focus();
   };
 
   return (
@@ -114,12 +116,19 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
       <div className="relative flex items-center">
         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
         <input
+          ref={inputRef}
           type="text"
-          placeholder="Digite a placa (ex: KMH2162), modelo ou cliente..."
-          value={searchQuery}
-          onFocus={() => setIsOpen(true)}
+          placeholder="Digite a placa (ex: XXX0000), modelo ou cliente..."
+          value={query}
+          onFocus={(e) => {
+            setIsOpen(true);
+            e.target.select();
+          }}
+          onClick={() => {
+            setIsOpen(true);
+          }}
           onChange={(e) => {
-            setSearchQuery(e.target.value);
+            setQuery(e.target.value);
             setIsOpen(true);
             if (selectedVehicleId) {
               onSelectVehicle('');
@@ -129,7 +138,7 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
             isOpen ? 'bg-white border-amber-500 ring-2 ring-amber-500/20 shadow-xs' : 'border-gray-200 hover:border-gray-300'
           } ${error ? 'border-red-400 bg-red-50/50' : ''}`}
         />
-        {searchQuery ? (
+        {query ? (
           <button
             type="button"
             onClick={handleClear}
@@ -146,8 +155,10 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
       {/* Dropdown list */}
       {isOpen && (
         <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden max-h-72 flex flex-col">
-          <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-            <span>Selecione a Placa / Veículo</span>
+          <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+            <span>
+              {activeSearch ? `Buscando por "${activeSearch}"` : 'Selecione a Placa / Veículo'}
+            </span>
             <span className="text-amber-600 font-extrabold">{filteredVehicles.length} veículo(s)</span>
           </div>
 
@@ -156,7 +167,7 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
               <div className="p-4 text-center space-y-1">
                 <p className="text-xs font-bold text-slate-700">Nenhum veículo encontrado</p>
                 <p className="text-[11px] text-slate-400">
-                  Nenhuma placa ou veículo atende ao filtro "{searchQuery}".
+                  Nenhuma placa ou veículo atende à busca "{activeSearch}".
                 </p>
               </div>
             ) : (
@@ -167,6 +178,7 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, error }
                   <button
                     key={v.id}
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => handleSelect(v)}
                     className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
                       isSelected ? 'bg-amber-50 text-amber-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
@@ -223,16 +235,15 @@ export default function OrderNewView({ onBack, onNavigateToOrderDetails, presele
       const { data, error } = await supabase
         .from('vehicles')
         .select('*, clients(name)')
-        .order('plate');
+        .order('plate')
+        .range(0, 4999);
       if (error) throw error;
       const options = (data ?? []) as VehicleOption[];
       setVehicles(options);
-      if (options.length > 0) {
-        if (preselectedVehicleId && options.some((v) => v.id === preselectedVehicleId)) {
-          setSelectedVehicleId(preselectedVehicleId);
-        } else {
-          setSelectedVehicleId(options[0].id);
-        }
+      if (options.length > 0 && preselectedVehicleId && options.some((v) => v.id === preselectedVehicleId)) {
+        setSelectedVehicleId(preselectedVehicleId);
+      } else {
+        setSelectedVehicleId('');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar veículos');
