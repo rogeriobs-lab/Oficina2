@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import RecordDeletionManager from './RecordDeletionManager';
 import {
   getSupabaseCredentials,
   saveSupabaseCredentials,
@@ -525,6 +526,9 @@ export default function SettingsView() {
             </label>
           </div>
         </div>
+
+        {/* Record Deletion Manager Section */}
+        <RecordDeletionManager />
 
         {/* Danger Zone: Clear All Data */}
         <div className="pt-4 border-t border-slate-100">

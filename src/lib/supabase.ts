@@ -490,6 +490,8 @@ class MockSupabaseQueryBuilder<T = any> implements PromiseLike<any> {
   private action: 'select' | 'insert' | 'update' | 'delete' = 'select';
   private payload: any = null;
   private filters: { column: string; value: any }[] = [];
+  private inFilters: { column: string; values: any[] }[] = [];
+  private neqFilters: { column: string; value: any }[] = [];
   private sortColumn: string | null = null;
   private sortAscending: boolean = true;
   private isSingle: boolean = false;
@@ -531,6 +533,23 @@ class MockSupabaseQueryBuilder<T = any> implements PromiseLike<any> {
     return this;
   }
 
+  neq(column: string, value: any) {
+    this.neqFilters.push({ column, value });
+    return this;
+  }
+
+  in(column: string, values: any[]) {
+    this.inFilters.push({ column, values: Array.isArray(values) ? values : [values] });
+    return this;
+  }
+
+  not(column: string, operator: string, value: any) {
+    if (operator === 'is' && value === null) {
+      this.neqFilters.push({ column, value: null });
+    }
+    return this;
+  }
+
   order(column: string, options?: { ascending?: boolean }) {
     this.sortColumn = column;
     this.sortAscending = options?.ascending !== false;
@@ -547,15 +566,25 @@ class MockSupabaseQueryBuilder<T = any> implements PromiseLike<any> {
     return this;
   }
 
+  private matchesFilters(item: any): boolean {
+    for (const filter of this.filters) {
+      if (item[filter.column] !== filter.value) return false;
+    }
+    for (const filter of this.neqFilters) {
+      if (item[filter.column] === filter.value) return false;
+    }
+    for (const filter of this.inFilters) {
+      if (!filter.values.includes(item[filter.column])) return false;
+    }
+    return true;
+  }
+
   private execute() {
     const storageKey = `oficinapro_${this.tableName}`;
     let data = getStorageItem<any[]>(storageKey, []);
 
     if (this.action === 'select') {
-      // Filter based on eq
-      for (const filter of this.filters) {
-        data = data.filter((item) => item[filter.column] === filter.value);
-      }
+      data = data.filter((item) => this.matchesFilters(item));
 
       // Populate joins
       if (this.tableName === 'vehicles') {
@@ -640,17 +669,9 @@ class MockSupabaseQueryBuilder<T = any> implements PromiseLike<any> {
     }
 
     if (this.action === 'update') {
-      // Find items to update
       let updatedCount = 0;
       const updatedData = data.map((item) => {
-        let matches = true;
-        for (const filter of this.filters) {
-          if (item[filter.column] !== filter.value) {
-            matches = false;
-            break;
-          }
-        }
-        if (matches) {
+        if (this.matchesFilters(item)) {
           updatedCount++;
           return { ...item, ...this.payload };
         }
@@ -663,16 +684,7 @@ class MockSupabaseQueryBuilder<T = any> implements PromiseLike<any> {
 
     if (this.action === 'delete') {
       const initialLength = data.length;
-      const filteredData = data.filter((item) => {
-        let matches = true;
-        for (const filter of this.filters) {
-          if (item[filter.column] !== filter.value) {
-            matches = false;
-            break;
-          }
-        }
-        return !matches; // Keep items that don't match filters
-      });
+      const filteredData = data.filter((item) => !this.matchesFilters(item));
 
       setStorageItem(storageKey, filteredData);
       return { data: null, error: null, count: initialLength - filteredData.length };
@@ -1015,6 +1027,141 @@ export const consolidateDuplicateVehicles = async (): Promise<{ success: boolean
       success: false,
       mergedCount: 0,
       message: `Erro ao agrupar veículos: ${err instanceof Error ? err.message : 'Erro desconhecido'}`,
+    };
+  }
+};
+
+export const deleteClientAndAssociations = async (clientId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    // Fetch associated vehicles
+    const { data: clientVehicles } = await supabase
+      .from('vehicles')
+      .select('id')
+      .eq('client_id', clientId);
+
+    const vehicleIds = (clientVehicles || []).map((v: any) => v.id);
+
+    // Fetch associated service orders
+    const { data: clientOrders } = await supabase
+      .from('service_orders')
+      .select('id')
+      .eq('client_id', clientId);
+
+    let orderIdsFromVehicles: string[] = [];
+    if (vehicleIds.length > 0) {
+      const { data: vOrders } = await supabase
+        .from('service_orders')
+        .select('id')
+        .in('vehicle_id', vehicleIds);
+      orderIdsFromVehicles = (vOrders || []).map((o: any) => o.id);
+    }
+
+    const allOrderIds = Array.from(new Set([
+      ...(clientOrders || []).map((o: any) => o.id),
+      ...orderIdsFromVehicles,
+    ]));
+
+    // Delete order items and service orders
+    if (allOrderIds.length > 0) {
+      await supabase.from('order_items').delete().in('order_id', allOrderIds);
+      await supabase.from('service_orders').delete().in('id', allOrderIds);
+    }
+    await supabase.from('service_orders').delete().eq('client_id', clientId);
+
+    // Delete vehicles
+    if (vehicleIds.length > 0) {
+      await supabase.from('vehicles').delete().in('id', vehicleIds);
+    }
+    await supabase.from('vehicles').delete().eq('client_id', clientId);
+
+    // Delete client
+    await supabase.from('clients').delete().eq('id', clientId);
+
+    // Synchronize local storage mock
+    const items = getStorageItem<any[]>('oficinapro_order_items', []);
+    setStorageItem('oficinapro_order_items', items.filter((i) => !allOrderIds.includes(i.order_id)));
+
+    const orders = getStorageItem<any[]>('oficinapro_service_orders', []);
+    setStorageItem('oficinapro_service_orders', orders.filter((o) => o.client_id !== clientId && !allOrderIds.includes(o.id)));
+
+    const vehicles = getStorageItem<any[]>('oficinapro_vehicles', []);
+    setStorageItem('oficinapro_vehicles', vehicles.filter((v) => v.client_id !== clientId && !vehicleIds.includes(v.id)));
+
+    const clients = getStorageItem<any[]>('oficinapro_clients', []);
+    setStorageItem('oficinapro_clients', clients.filter((c) => c.id !== clientId));
+
+    return {
+      success: true,
+      message: `Cliente, seus ${vehicleIds.length} veículo(s) e ${allOrderIds.length} serviço(s) foram excluídos com sucesso.`,
+    };
+  } catch (err: any) {
+    console.error('Erro ao excluir cliente e associações:', err);
+    return {
+      success: false,
+      message: `Erro ao excluir cliente: ${err?.message || 'Erro desconhecido'}`,
+    };
+  }
+};
+
+export const deleteVehicleAndAssociations = async (vehicleId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const { data: vOrders } = await supabase
+      .from('service_orders')
+      .select('id')
+      .eq('vehicle_id', vehicleId);
+
+    const orderIds = (vOrders || []).map((o: any) => o.id);
+
+    if (orderIds.length > 0) {
+      await supabase.from('order_items').delete().in('order_id', orderIds);
+      await supabase.from('service_orders').delete().in('id', orderIds);
+    }
+    await supabase.from('service_orders').delete().eq('vehicle_id', vehicleId);
+
+    await supabase.from('vehicles').delete().eq('id', vehicleId);
+
+    const items = getStorageItem<any[]>('oficinapro_order_items', []);
+    setStorageItem('oficinapro_order_items', items.filter((i) => !orderIds.includes(i.order_id)));
+
+    const orders = getStorageItem<any[]>('oficinapro_service_orders', []);
+    setStorageItem('oficinapro_service_orders', orders.filter((o) => o.vehicle_id !== vehicleId && !orderIds.includes(o.id)));
+
+    const vehicles = getStorageItem<any[]>('oficinapro_vehicles', []);
+    setStorageItem('oficinapro_vehicles', vehicles.filter((v) => v.id !== vehicleId));
+
+    return {
+      success: true,
+      message: `Veículo e seus ${orderIds.length} serviço(s) associado(s) foram excluídos com sucesso.`,
+    };
+  } catch (err: any) {
+    console.error('Erro ao excluir veículo e associações:', err);
+    return {
+      success: false,
+      message: `Erro ao excluir veículo: ${err?.message || 'Erro desconhecido'}`,
+    };
+  }
+};
+
+export const deleteServiceOrder = async (orderId: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    await supabase.from('order_items').delete().eq('order_id', orderId);
+    await supabase.from('service_orders').delete().eq('id', orderId);
+
+    const items = getStorageItem<any[]>('oficinapro_order_items', []);
+    setStorageItem('oficinapro_order_items', items.filter((i) => i.order_id !== orderId));
+
+    const orders = getStorageItem<any[]>('oficinapro_service_orders', []);
+    setStorageItem('oficinapro_service_orders', orders.filter((o) => o.id !== orderId));
+
+    return {
+      success: true,
+      message: 'Serviço/Ordem de Serviço excluído com sucesso.',
+    };
+  } catch (err: any) {
+    console.error('Erro ao excluir ordem de serviço:', err);
+    return {
+      success: false,
+      message: `Erro ao excluir serviço: ${err?.message || 'Erro desconhecido'}`,
     };
   }
 };

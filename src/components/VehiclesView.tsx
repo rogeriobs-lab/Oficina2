@@ -246,7 +246,8 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormBrand('');
     setFormModel('');
     setFormYear('');
-    setFormClientId(clients[0]?.id ?? '');
+    const firstValidClient = clients.find((c) => isValidOwnerName(c.name));
+    setFormClientId(firstValidClient?.id ?? '');
     setFormNotes('');
     setFormError(null);
     setClientSearchText('');
@@ -261,7 +262,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormBrand(vehicle.brand);
     setFormModel(vehicle.model);
     setFormYear(vehicle.year ? String(vehicle.year) : '');
-    setFormClientId(vehicle.client_id);
+    setFormClientId(vehicle.client_id || '');
     setFormNotes(vehicle.notes ?? '');
     setFormError(null);
     setClientSearchText('');
@@ -277,7 +278,12 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       return;
     }
     if (!formClientId) {
-      setFormError('Selecione o proprietário');
+      setFormError('É obrigatório selecionar um proprietário para o veículo.');
+      return;
+    }
+    const selectedClient = clients.find((c) => c.id === formClientId);
+    if (!selectedClient || !isValidOwnerName(selectedClient.name)) {
+      setFormError('É obrigatório selecionar um proprietário válido. Não é permitido cadastrar veículos sem proprietário.');
       return;
     }
     setSaving(true);
@@ -858,25 +864,20 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                       )}
                     </div>
 
-                    {getVehicleOwnerName(vehicle) !== 'Sem proprietário' ? (
-                      <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                        <User className="w-4 h-4 text-sky-600 shrink-0" />
-                        <span className="truncate">{getVehicleOwnerName(vehicle)}</span>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(vehicle)}
-                        className="flex items-center justify-between gap-2 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 p-2.5 rounded-xl border border-amber-200/80 transition-all w-full cursor-pointer group/btn"
-                        title="Clique para vincular o proprietário deste veículo"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <User className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span className="truncate font-bold">Sem proprietário (Clique para vincular)</span>
-                        </div>
-                        <Pencil className="w-3.5 h-3.5 text-amber-600 shrink-0 opacity-70 group-hover/btn:opacity-100" />
-                      </button>
-                    )}
+                    <div
+                      className={`flex items-center gap-2 text-xs font-semibold p-2.5 rounded-xl border ${
+                        getVehicleOwnerName(vehicle) !== 'Sem proprietário'
+                          ? 'text-slate-700 bg-slate-50 border-slate-100'
+                          : 'text-amber-700 bg-amber-50 border-amber-200/80'
+                      }`}
+                    >
+                      <User
+                        className={`w-4 h-4 shrink-0 ${
+                          getVehicleOwnerName(vehicle) !== 'Sem proprietário' ? 'text-sky-600' : 'text-amber-600'
+                        }`}
+                      />
+                      <span className="truncate">{getVehicleOwnerName(vehicle)}</span>
+                    </div>
 
                     {vehicle.notes && (
                       <div className="flex items-start gap-2.5 text-xs text-slate-700 bg-amber-50/80 p-3 rounded-xl border border-amber-200/80">
