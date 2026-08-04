@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase, deleteClientAndAssociations, type Client } from '@/src/lib/supabase';
 import { theme, formatPhone } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, User, Phone, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
+import { Plus, Search, User, Phone, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, Loader2 } from 'lucide-react';
 
 interface ClientsViewProps {
   onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
@@ -29,7 +29,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     }
   }, [params]);
 
-  // Debounce searchInput to search automatically
+  // Debounce searchInput to search automatically (fast 100ms)
   useEffect(() => {
     const handler = setTimeout(() => {
       const trimmed = searchInput.trim();
@@ -37,7 +37,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
         setSearch(trimmed);
         setPage(1);
       }
-    }, 250);
+    }, 100);
     return () => clearTimeout(handler);
   }, [searchInput, search]);
 
@@ -59,6 +59,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
         const cleanDigits = term.replace(/\D/g, '');
 
         const promises = [
+          supabase.from('clients').select('*', { count: 'exact' }).ilike('name', `${term}%`).order('name').range(from, to),
           supabase.from('clients').select('*', { count: 'exact' }).ilike('name', `%${term}%`).order('name').range(from, to),
           supabase.from('clients').select('*', { count: 'exact' }).ilike('phone', `%${term}%`).order('name').range(from, to),
           supabase.from('clients').select('*', { count: 'exact' }).ilike('notes', `%${term}%`).order('name').range(from, to),
@@ -82,7 +83,27 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
         });
 
         const results = Array.from(resultMap.values());
-        results.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
+        const normTerm = term
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+
+        results.sort((a, b) => {
+          const normA = (a.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          const normB = (b.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+          const aStarts = normA.startsWith(normTerm);
+          const bStarts = normB.startsWith(normTerm);
+          if (aStarts && !bStarts) return -1;
+          if (!aStarts && bStarts) return 1;
+
+          const aWordStarts = normA.split(/\s+/).some((w) => w.startsWith(normTerm));
+          const bWordStarts = normB.split(/\s+/).some((w) => w.startsWith(normTerm));
+          if (aWordStarts && !bWordStarts) return -1;
+          if (!aWordStarts && bWordStarts) return 1;
+
+          return (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' });
+        });
 
         setClients(results);
         setTotalCount(maxCount || results.length);
@@ -195,10 +216,50 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     }
   };
 
-  const filtered = clients;
+  const getClientSearchScore = (c: Client, searchStr: string): number => {
+    if (!searchStr) return 0;
+    const normTerm = searchStr
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+    if (!normTerm) return 0;
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} onRetry={loadClients} />;
+    const normName = (c.name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    if (normName.startsWith(normTerm)) return 1;
+    if (normName.split(/\s+/).some((w) => w.startsWith(normTerm))) return 2;
+    if (normName.includes(normTerm)) return 3;
+
+    const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
+    const cleanDigits = searchStr.replace(/\D/g, '');
+    if ((cleanDigits.length >= 3 && cPhoneDigits.includes(cleanDigits)) || (c.phone || '').toLowerCase().includes(normTerm)) {
+      return 4;
+    }
+
+    if (c.notes && c.notes.toLowerCase().includes(normTerm)) return 5;
+
+    return 6;
+  };
+
+  const currentSearchTerm = searchInput.trim() || search.trim();
+
+  const filtered = currentSearchTerm
+    ? clients
+        .filter((c) => getClientSearchScore(c, currentSearchTerm) < 6)
+        .sort((a, b) => {
+          const scoreA = getClientSearchScore(a, currentSearchTerm);
+          const scoreB = getClientSearchScore(b, currentSearchTerm);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          return (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' });
+        })
+    : clients;
+
+  if (loading && clients.length === 0 && !currentSearchTerm) return <LoadingState />;
+  if (error && clients.length === 0) return <ErrorState message={error} onRetry={loadClients} />;
 
   return (
     <div className="space-y-6 relative">
@@ -330,7 +391,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
             <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
             <input
               type="text"
-              placeholder="Digite o nome ou telefone do cliente e pressione Enter..."
+              placeholder="Pesquisar por nome ou telefone..."
               value={searchInput}
               onChange={(e) => {
                 const val = e.target.value;
@@ -340,9 +401,13 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
                   setPage(1);
                 }
               }}
-              className="block w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all outline-none"
+              className="block w-full pl-11 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all outline-none"
             />
-            {searchInput && (
+            {loading ? (
+              <div className="absolute right-3 top-3.5 flex items-center gap-1">
+                <Loader2 className="w-4 h-4 text-sky-500 animate-spin" />
+              </div>
+            ) : searchInput ? (
               <button
                 type="button"
                 onClick={() => {
@@ -355,7 +420,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
               >
                 <X className="w-4 h-4" />
               </button>
-            )}
+            ) : null}
           </div>
           <button
             type="submit"

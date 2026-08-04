@@ -3,7 +3,7 @@ import { supabase, deleteServiceOrder } from '@/src/lib/supabase';
 import { theme, formatDate, formatCurrency } from '@/src/lib/theme';
 import { computeOrderNumbers } from '@/src/lib/orderUtils';
 import { LoadingState, ErrorState, EmptyState } from './States';
-import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet, X, Trash2 } from 'lucide-react';
+import { Plus, Search, ClipboardList, Gauge, Calendar, ChevronRight, ChevronLeft, FileSpreadsheet, X, Trash2, Loader2 } from 'lucide-react';
 
 type OrderRow = {
   id: string;
@@ -48,7 +48,7 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
         setSearch(trimmed);
         setPage(1);
       }
-    }, 250);
+    }, 100);
     return () => clearTimeout(handler);
   }, [searchInput, search]);
 
@@ -259,11 +259,14 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
 
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
 
+  const currentSearchTerm = searchInput.trim() || search.trim();
+
   const filtered = orders.filter((o) => {
-    if (!search.trim()) {
-      return statusFilter === 'todas' || o.status === statusFilter;
-    }
-    const cleanS = search.trim().toLowerCase();
+    const matchStatus = statusFilter === 'todas' || o.status === statusFilter;
+    if (!matchStatus) return false;
+    if (!currentSearchTerm) return true;
+
+    const cleanS = currentSearchTerm.toLowerCase();
     const cleanSAlpha = cleanS.replace(/[^a-z0-9]/g, '');
 
     const plateNorm = (o.vehicles?.plate || '').toLowerCase();
@@ -276,8 +279,7 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
       o.vehicles?.model?.toLowerCase().includes(cleanS) ||
       o.vehicles?.brand?.toLowerCase().includes(cleanS);
 
-    const matchStatus = statusFilter === 'todas' || o.status === statusFilter;
-    return matchSearch && matchStatus;
+    return matchSearch;
   });
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -292,8 +294,8 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
     setPage(1);
   };
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} onRetry={loadOrders} />;
+  if (loading && orders.length === 0 && !currentSearchTerm) return <LoadingState />;
+  if (error && orders.length === 0) return <ErrorState message={error} onRetry={loadOrders} />;
 
   return (
     <div className="space-y-6">
@@ -329,7 +331,7 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
             <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
             <input
               type="text"
-              placeholder="Digite a placa, cliente ou modelo e pressione Enter para buscar..."
+              placeholder="Pesquisar por placa, cliente ou modelo..."
               value={searchInput}
               onChange={(e) => {
                 const val = e.target.value;
@@ -339,9 +341,13 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
                   setPage(1);
                 }
               }}
-              className="block w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all outline-none"
+              className="block w-full pl-11 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all outline-none"
             />
-            {searchInput && (
+            {loading ? (
+              <div className="absolute right-3 top-3.5 flex items-center gap-1">
+                <Loader2 className="w-4 h-4 text-sky-500 animate-spin" />
+              </div>
+            ) : searchInput ? (
               <button
                 type="button"
                 onClick={handleClearSearch}
@@ -350,7 +356,7 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
               >
                 <X className="w-4 h-4" />
               </button>
-            )}
+            ) : null}
           </div>
           <button
             type="submit"

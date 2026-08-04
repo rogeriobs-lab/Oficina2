@@ -67,7 +67,57 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
   const isSelectedString = Boolean(selectedClientId && query === selectedLabel);
   const activeSearch = isSelectedString ? '' : query.trim();
 
-  // Live remote search with 200ms debounce
+  // Helper to normalize strings for search (accents, lowercase)
+  const normalizeStr = (str?: string | null) =>
+    (str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  // Helper to score client relevance (prefix-match priority)
+  const getClientScore = (c: Client, search: string): number => {
+    if (!search) return 0;
+    const normQuery = normalizeStr(search);
+    if (!normQuery) return 0;
+
+    const normName = normalizeStr(c.name);
+
+    // 1. Name starts with query (Highest priority)
+    if (normName.startsWith(normQuery)) {
+      return 1;
+    }
+
+    // 2. A word in name starts with query
+    const words = normName.split(/\s+/).filter(Boolean);
+    if (words.some((w) => w.startsWith(normQuery))) {
+      return 2;
+    }
+
+    // 3. Name contains query anywhere
+    if (normName.includes(normQuery)) {
+      return 3;
+    }
+
+    // 4. Phone match
+    const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
+    const queryDigits = search.replace(/\D/g, '');
+    if (
+      (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
+      normalizeStr(c.phone).includes(normQuery)
+    ) {
+      return 4;
+    }
+
+    // 5. Notes match
+    if (c.notes && normalizeStr(c.notes).includes(normQuery)) {
+      return 5;
+    }
+
+    return 6;
+  };
+
+  // Live remote search with fast 100ms response
   useEffect(() => {
     if (!activeSearch || activeSearch.length < 1 || !onMergeRemoteClients) return;
 
@@ -81,18 +131,19 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
         const resultsMap = new Map<string, Client>();
 
         const promises: Promise<any>[] = [
-          supabase.from('clients').select('id, name, phone').ilike('name', `%${term}%`).order('name').limit(100),
-          supabase.from('clients').select('id, name, phone').ilike('phone', `%${term}%`).order('name').limit(100),
+          supabase.from('clients').select('id, name, phone, notes').ilike('name', `${term}%`).order('name').limit(100),
+          supabase.from('clients').select('id, name, phone, notes').ilike('name', `%${term}%`).order('name').limit(100),
+          supabase.from('clients').select('id, name, phone, notes').ilike('phone', `%${term}%`).order('name').limit(100),
         ];
 
         if (cleanPhone && cleanPhone.length >= 3 && cleanPhone !== term) {
           promises.push(
-            supabase.from('clients').select('id, name, phone').ilike('phone', `%${cleanPhone}%`).order('name').limit(100)
+            supabase.from('clients').select('id, name, phone, notes').ilike('phone', `%${cleanPhone}%`).order('name').limit(100)
           );
         }
 
         if (words.length > 1) {
-          let qWords = supabase.from('clients').select('id, name, phone').order('name').limit(100);
+          let qWords = supabase.from('clients').select('id, name, phone, notes').order('name').limit(100);
           words.forEach((w) => {
             qWords = qWords.ilike('name', `%${w}%`);
           });
@@ -115,38 +166,27 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
       } finally {
         setSearchingServer(false);
       }
-    }, 200);
+    }, 100);
 
     return () => clearTimeout(timer);
   }, [activeSearch, onMergeRemoteClients]);
-
-  const normalizeStr = (str?: string | null) =>
-    (str || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
 
   const filteredClients = clients
     .filter((c) => {
       if (!isValidName(c.name)) return false;
       if (!activeSearch) return true;
-
-      const normQuery = normalizeStr(activeSearch);
-      const words = normQuery.split(/\s+/).filter(Boolean);
-      const cName = normalizeStr(c.name);
-      const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
-      const queryDigits = activeSearch.replace(/\D/g, '');
-
-      const nameMatch = words.length > 0 && words.every((w) => cName.includes(w));
-      const phoneMatch =
-        (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
-        normalizeStr(c.phone).includes(normQuery);
-      const notesMatch = normalizeStr(c.notes).includes(normQuery);
-
-      return nameMatch || phoneMatch || notesMatch;
+      return getClientScore(c, activeSearch) < 6;
     })
-    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
+    .sort((a, b) => {
+      if (activeSearch) {
+        const scoreA = getClientScore(a, activeSearch);
+        const scoreB = getClientScore(b, activeSearch);
+        if (scoreA !== scoreB) {
+          return scoreA - scoreB;
+        }
+      }
+      return (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' });
+    });
 
   const handleSelect = (c: Client) => {
     onSelectClient(c.id);
@@ -173,7 +213,9 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
           value={query}
           onFocus={(e) => {
             setIsOpen(true);
-            e.target.select();
+            if (selectedClientId && query === selectedLabel) {
+              e.target.select();
+            }
           }}
           onClick={() => setIsOpen(true)}
           onChange={(e) => {
@@ -351,7 +393,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         setSearch(trimmed);
         setPage(1);
       }
-    }, 250);
+    }, 100);
     return () => clearTimeout(handler);
   }, [searchInput, search]);
 
@@ -792,10 +834,43 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     return nameMatch || phoneMatch;
   });
 
-  const filtered = vehicles;
+  const getVehicleSearchScore = (v: VehicleRow, searchStr: string): number => {
+    if (!searchStr) return 0;
+    const normQuery = searchStr.toLowerCase().trim();
+    if (!normQuery) return 0;
+    const cleanQuery = normQuery.replace(/[^a-z0-9]/g, '');
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} onRetry={loadData} />;
+    const plateRaw = (v.plate || '').toLowerCase();
+    const plateClean = plateRaw.replace(/[^a-z0-9]/g, '');
+    const brand = (v.brand || '').toLowerCase();
+    const model = (v.model || '').toLowerCase();
+    const clientName = getVehicleOwnerName(v).toLowerCase();
+
+    if (plateRaw.startsWith(normQuery) || (cleanQuery && plateClean.startsWith(cleanQuery))) return 1;
+    if (brand.startsWith(normQuery)) return 2;
+    if (model.startsWith(normQuery)) return 3;
+    if (clientName.startsWith(normQuery) || clientName.split(/\s+/).some((w) => w.startsWith(normQuery))) return 4;
+    if (plateRaw.includes(normQuery) || (cleanQuery && plateClean.includes(cleanQuery))) return 5;
+    if (brand.includes(normQuery) || model.includes(normQuery) || clientName.includes(normQuery)) return 6;
+
+    return 7;
+  };
+
+  const currentSearchTerm = searchInput.trim() || search.trim();
+
+  const filtered = currentSearchTerm
+    ? vehicles
+        .filter((v) => getVehicleSearchScore(v, currentSearchTerm) < 7)
+        .sort((a, b) => {
+          const scoreA = getVehicleSearchScore(a, currentSearchTerm);
+          const scoreB = getVehicleSearchScore(b, currentSearchTerm);
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          return (a.plate || '').localeCompare(b.plate || '', 'pt-BR', { sensitivity: 'base' });
+        })
+    : vehicles;
+
+  if (loading && vehicles.length === 0 && !currentSearchTerm) return <LoadingState />;
+  if (error && vehicles.length === 0) return <ErrorState message={error} onRetry={loadData} />;
 
   return (
     <div className="space-y-6 relative">
@@ -1028,7 +1103,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
             <Search className="absolute left-4 top-3.5 w-5 h-5 text-slate-400" />
             <input
               type="text"
-              placeholder="Digite a placa, marca ou modelo e pressione Enter para buscar..."
+              placeholder="Pesquisar por placa, marca ou modelo..."
               value={searchInput}
               onChange={(e) => {
                 const val = e.target.value;
@@ -1038,9 +1113,13 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                   setPage(1);
                 }
               }}
-              className="block w-full pl-11 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-100 transition-all outline-none"
+              className="block w-full pl-11 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-100 transition-all outline-none"
             />
-            {searchInput && (
+            {loading ? (
+              <div className="absolute right-3 top-3.5 flex items-center gap-1">
+                <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+              </div>
+            ) : searchInput ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1053,7 +1132,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
               >
                 <X className="w-4 h-4" />
               </button>
-            )}
+            ) : null}
           </div>
           <button
             type="submit"

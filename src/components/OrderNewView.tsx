@@ -97,6 +97,9 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
         const resultsMap = new Map<string, VehicleOption>();
 
         const promises: Promise<any>[] = [
+          supabase.from('vehicles').select('*, clients(name)').ilike('plate', `${term}%`).order('plate').limit(100),
+          supabase.from('vehicles').select('*, clients(name)').ilike('brand', `${term}%`).order('plate').limit(100),
+          supabase.from('vehicles').select('*, clients(name)').ilike('model', `${term}%`).order('plate').limit(100),
           supabase.from('vehicles').select('*, clients(name)').ilike('plate', `%${term}%`).order('plate').limit(100),
           supabase.from('vehicles').select('*, clients(name)').ilike('brand', `%${term}%`).order('plate').limit(100),
           supabase.from('vehicles').select('*, clients(name)').ilike('model', `%${term}%`).order('plate').limit(100),
@@ -104,6 +107,7 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
 
         if (cleanTerm && cleanTerm !== term) {
           promises.push(
+            supabase.from('vehicles').select('*, clients(name)').ilike('plate', `${cleanTerm}%`).order('plate').limit(100),
             supabase.from('vehicles').select('*, clients(name)').ilike('plate', `%${cleanTerm}%`).order('plate').limit(100)
           );
         }
@@ -124,33 +128,68 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
       } finally {
         setSearchingServer(false);
       }
-    }, 200);
+    }, 100);
 
     return () => clearTimeout(timer);
   }, [activeSearch, onMergeRemoteVehicles]);
 
-  // Filter vehicles matching plate (raw and cleaned), brand, model or client
-  const filteredVehicles = vehicles.filter((v) => {
-    if (!activeSearch) return true;
-    const rawQuery = activeSearch.toLowerCase();
-    const cleanQuery = rawQuery.replace(/[^a-z0-9]/g, '');
+  // Score vehicle relevance (prefix-match priority)
+  const getVehicleSearchScore = (v: VehicleOption, search: string): number => {
+    if (!search) return 0;
+    const normQuery = search.toLowerCase().trim();
+    if (!normQuery) return 0;
+    const cleanQuery = normQuery.replace(/[^a-z0-9]/g, '');
 
     const plateRaw = (v.plate || '').toLowerCase();
     const plateClean = plateRaw.replace(/[^a-z0-9]/g, '');
-
     const brand = (v.brand || '').toLowerCase();
     const model = (v.model || '').toLowerCase();
-    const clientName = Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name;
-    const client = (clientName || '').toLowerCase();
+    const clientName = (Array.isArray(v.clients) ? v.clients[0]?.name : (v.clients as any)?.name || '').toLowerCase();
 
-    return (
-      plateRaw.includes(rawQuery) ||
-      (cleanQuery !== '' && plateClean.includes(cleanQuery)) ||
-      brand.includes(rawQuery) ||
-      model.includes(rawQuery) ||
-      client.includes(rawQuery)
-    );
-  });
+    // 1. Plate starts with query
+    if (plateRaw.startsWith(normQuery) || (cleanQuery && plateClean.startsWith(cleanQuery))) {
+      return 1;
+    }
+    // 2. Brand starts with query
+    if (brand.startsWith(normQuery)) {
+      return 2;
+    }
+    // 3. Model starts with query
+    if (model.startsWith(normQuery)) {
+      return 3;
+    }
+    // 4. Client name starts with query or word in client name starts with query
+    if (clientName.startsWith(normQuery) || clientName.split(/\s+/).some((w) => w.startsWith(normQuery))) {
+      return 4;
+    }
+    // 5. Plate contains query
+    if (plateRaw.includes(normQuery) || (cleanQuery && plateClean.includes(cleanQuery))) {
+      return 5;
+    }
+    // 6. Brand/Model/Client contains query
+    if (brand.includes(normQuery) || model.includes(normQuery) || clientName.includes(normQuery)) {
+      return 6;
+    }
+
+    return 7;
+  };
+
+  // Filter vehicles matching plate, brand, model or client with prefix priority
+  const filteredVehicles = vehicles
+    .filter((v) => {
+      if (!activeSearch) return true;
+      return getVehicleSearchScore(v, activeSearch) < 7;
+    })
+    .sort((a, b) => {
+      if (activeSearch) {
+        const scoreA = getVehicleSearchScore(a, activeSearch);
+        const scoreB = getVehicleSearchScore(b, activeSearch);
+        if (scoreA !== scoreB) {
+          return scoreA - scoreB;
+        }
+      }
+      return (a.plate || '').localeCompare(b.plate || '', 'pt-BR', { sensitivity: 'base' });
+    });
 
   const handleSelect = (v: VehicleOption) => {
     onSelectVehicle(v.id);
@@ -177,7 +216,9 @@ function VehicleCombobox({ vehicles, selectedVehicleId, onSelectVehicle, onMerge
           value={query}
           onFocus={(e) => {
             setIsOpen(true);
-            e.target.select();
+            if (selectedVehicleId && query === selectedLabel) {
+              e.target.select();
+            }
           }}
           onClick={() => {
             setIsOpen(true);
