@@ -213,7 +213,9 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
             <span>
               {activeSearch ? `Filtro: "${activeSearch}"` : 'Selecione o Cliente Proprietário'}
             </span>
-            <span className="text-emerald-600 font-extrabold">{filteredClients.length} de {clients.length} cliente(s)</span>
+            <span className="text-emerald-600 font-extrabold">
+              {filteredClients.length} cliente(s) {activeSearch ? `de ${clients.length}` : '(A-Z)'}
+            </span>
           </div>
 
           <div className="overflow-y-auto max-h-[320px] divide-y divide-slate-100 p-1.5 pb-8">
@@ -267,6 +269,19 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
                     </button>
                   );
                 })}
+
+                {/* Explicit indicator showing that all records have been loaded to the end */}
+                {!activeSearch && filteredClients.length > 0 && (
+                  <div className="py-3 px-4 text-center bg-slate-50/90 border-t border-slate-200 rounded-b-xl my-2">
+                    <p className="text-xs font-extrabold text-slate-700 flex items-center justify-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0 stroke-[3]" />
+                      <span>Fim da lista — Todos os {filteredClients.length} clientes exibidos (de A a Z)</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-medium mt-1">
+                      "{filteredClients[filteredClients.length - 1]?.name}" é o último cliente do seu banco de dados em ordem alfabética.
+                    </p>
+                  </div>
+                )}
 
                 {activeSearch && (
                   <div className="p-3 my-2 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
