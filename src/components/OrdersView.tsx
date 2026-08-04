@@ -40,6 +40,18 @@ export default function OrdersView({ onNavigate, params }: OrdersViewProps) {
     }
   }, [params]);
 
+  // Debounce searchInput to search automatically
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      const trimmed = searchInput.trim();
+      if (trimmed !== search) {
+        setSearch(trimmed);
+        setPage(1);
+      }
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [searchInput, search]);
+
   const loadOrders = useCallback(async () => {
     try {
       setLoading(true);

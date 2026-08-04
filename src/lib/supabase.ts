@@ -1217,11 +1217,21 @@ export const fetchAllClientsAllPages = async (): Promise<Client[]> => {
   let hasMore = true;
 
   while (hasMore) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('clients')
       .select('id, name, phone, notes')
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(page * pageSize, (page + 1) * pageSize - 1);
+
+    if (error) {
+      // Fallback without ordering in case id sort fails
+      const fallback = await supabase
+        .from('clients')
+        .select('id, name, phone, notes')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       console.error('Erro ao buscar página de clientes:', error);
@@ -1251,11 +1261,21 @@ export const fetchAllVehiclesAllPages = async (): Promise<any[]> => {
   let hasMore = true;
 
   while (hasMore) {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('vehicles')
       .select('*, clients(name)')
-      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
       .range(page * pageSize, (page + 1) * pageSize - 1);
+
+    if (error) {
+      // Fallback without ordering
+      const fallback = await supabase
+        .from('vehicles')
+        .select('*, clients(name)')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       console.error('Erro ao buscar página de veículos:', error);

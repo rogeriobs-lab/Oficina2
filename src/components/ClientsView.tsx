@@ -29,6 +29,18 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     }
   }, [params]);
 
+  // Debounce searchInput to search automatically
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      const trimmed = searchInput.trim();
+      if (trimmed !== search) {
+        setSearch(trimmed);
+        setPage(1);
+      }
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [searchInput, search]);
+
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formNotes, setFormNotes] = useState('');
@@ -183,11 +195,7 @@ export default function ClientsView({ onNavigate, params }: ClientsViewProps) {
     }
   };
 
-  const filtered = clients.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.phone ?? '').includes(search)
-  );
+  const filtered = clients;
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={loadClients} />;

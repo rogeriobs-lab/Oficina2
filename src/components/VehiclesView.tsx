@@ -273,6 +273,18 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     }
   }, [params]);
 
+  // Debounce searchInput to search automatically
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      const trimmed = searchInput.trim();
+      if (trimmed !== search) {
+        setSearch(trimmed);
+        setPage(1);
+      }
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [searchInput, search]);
+
   const [formPlate, setFormPlate] = useState('');
   const [formBrand, setFormBrand] = useState('');
   const [formModel, setFormModel] = useState('');
@@ -393,7 +405,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         const term = search.trim();
         const cleanPlate = term.replace(/[^a-zA-Z0-9]/g, '');
 
-        const promises = [
+        const promises: Promise<any>[] = [
           supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('plate', `%${term}%`).order('plate').range(from, to),
           supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('brand', `%${term}%`).order('plate').range(from, to),
           supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('model', `%${term}%`).order('plate').range(from, to),
@@ -403,6 +415,20 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         if (cleanPlate && cleanPlate !== term) {
           promises.push(
             supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).ilike('plate', `%${cleanPlate}%`).order('plate').range(from, to)
+          );
+        }
+
+        // Also search clients table for owner matches
+        const clientMatchesRes = await supabase
+          .from('clients')
+          .select('id')
+          .or(`name.ilike.%${term}%,phone.ilike.%${term}%,notes.ilike.%${term}%`)
+          .limit(100);
+
+        if (clientMatchesRes.data && clientMatchesRes.data.length > 0) {
+          const clientIds = clientMatchesRes.data.map((c) => c.id);
+          promises.push(
+            supabase.from('vehicles').select('*, clients(name)', { count: 'exact' }).in('client_id', clientIds).order('plate').range(from, to)
           );
         }
 
@@ -696,16 +722,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     return nameMatch || phoneMatch;
   });
 
-  const filtered = vehicles.filter((v) => {
-    const s = search.toLowerCase();
-    const ownerName = getVehicleOwnerName(v).toLowerCase();
-    return (
-      v.plate.toLowerCase().includes(s) ||
-      v.brand.toLowerCase().includes(s) ||
-      v.model.toLowerCase().includes(s) ||
-      ownerName.includes(s)
-    );
-  });
+  const filtered = vehicles;
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={loadData} />;
