@@ -64,35 +64,54 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
 
     const term = activeSearch.trim();
     const cleanTerm = term.replace(/\D/g, '');
+    const words = term.split(/\s+/).filter(Boolean);
 
     const timer = setTimeout(async () => {
       try {
         setSearchingServer(true);
-        const words = term.split(/\s+/).filter(Boolean);
-        const orConditions: string[] = [];
+        const resultsMap = new Map<string, Client>();
 
-        if (words.length > 1) {
-          const nameAnd = words.map((w) => `name.ilike.%${w}%`).join(',');
-          orConditions.push(`and(${nameAnd})`);
-        }
-        orConditions.push(`name.ilike.%${term}%`);
-        orConditions.push(`phone.ilike.%${term}%`);
+        // Query A: phrase match in name or phone (valid standard PostgREST .or syntax)
+        const orParts = [`name.ilike.%${term}%`, `phone.ilike.%${term}%`];
         if (cleanTerm && cleanTerm.length >= 3) {
-          orConditions.push(`phone.ilike.%${cleanTerm}%`);
+          orParts.push(`phone.ilike.%${cleanTerm}%`);
         }
 
-        const { data, error: qErr } = await supabase
+        const { data: dataA, error: errA } = await supabase
           .from('clients')
           .select('id, name, phone')
           .order('name')
           .limit(100)
-          .or(orConditions.join(','));
+          .or(orParts.join(','));
 
-        if (!qErr && data && data.length > 0) {
-          onMergeRemoteClients(data as Client[]);
+        if (!errA && dataA) {
+          dataA.forEach((c) => resultsMap.set(c.id, c as Client));
         }
-      } catch {
-        // silent catch
+
+        // Query B: if term has multiple words (e.g., "Maria Silva"), search each word in name
+        if (words.length > 1) {
+          let qB = supabase
+            .from('clients')
+            .select('id, name, phone')
+            .order('name')
+            .limit(100);
+
+          words.forEach((w) => {
+            qB = qB.ilike('name', `%${w}%`);
+          });
+
+          const { data: dataB, error: errB } = await qB;
+          if (!errB && dataB) {
+            dataB.forEach((c) => resultsMap.set(c.id, c as Client));
+          }
+        }
+
+        const combined = Array.from(resultsMap.values());
+        if (combined.length > 0) {
+          onMergeRemoteClients(combined);
+        }
+      } catch (e) {
+        console.error('Error fetching remote clients:', e);
       } finally {
         setSearchingServer(false);
       }
@@ -522,6 +541,21 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
     setFormModel(vehicle.model);
     setFormYear(vehicle.year ? String(vehicle.year) : '');
     setFormClientId(vehicle.client_id || '');
+
+    if (vehicle.client_id && !clients.some((c) => c.id === vehicle.client_id)) {
+      let clientName = '';
+      if (vehicle.clients) {
+        if (Array.isArray(vehicle.clients) && vehicle.clients.length > 0) {
+          clientName = (vehicle.clients[0] as any)?.name || '';
+        } else if (typeof vehicle.clients === 'object' && 'name' in vehicle.clients) {
+          clientName = (vehicle.clients as any).name || '';
+        }
+      }
+      if (clientName) {
+        setClients((prev) => [...prev, { id: vehicle.client_id!, name: clientName, phone: null, notes: null }]);
+      }
+    }
+
     setFormNotes(vehicle.notes ?? '');
     setFormError(null);
     setClientSearchText('');
