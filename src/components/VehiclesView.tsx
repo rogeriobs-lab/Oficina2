@@ -194,15 +194,15 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
       </div>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden max-h-72 flex flex-col">
-          <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-[100] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-visible max-h-[420px] flex flex-col">
+          <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 rounded-t-2xl">
             <span>
               {activeSearch ? `Buscando por "${activeSearch}"` : 'Selecione o Cliente Proprietário'}
             </span>
             <span className="text-emerald-600 font-extrabold">{filteredClients.length} cliente(s)</span>
           </div>
 
-          <div className="overflow-y-auto divide-y divide-slate-100 p-1">
+          <div className="overflow-y-auto max-h-[350px] divide-y divide-slate-100 p-1.5 pb-20">
             {filteredClients.length === 0 ? (
               <div className="p-4 text-center space-y-1">
                 <p className="text-xs font-bold text-slate-700">Nenhum cliente encontrado</p>
@@ -732,7 +732,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
       {/* Add / Edit Modal - Positioned at top for instant visibility */}
       {modalVisible && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-start justify-center z-50 p-4 pt-6 sm:pt-12 overflow-y-auto animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-scale-up my-auto sm:my-0">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-visible animate-scale-up my-auto sm:my-0 relative">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 bg-slate-50/50">
               <h2 className="text-xl font-bold text-slate-900">
                 {editingVehicle ? 'Editar Veículo' : 'Novo Veículo'}
