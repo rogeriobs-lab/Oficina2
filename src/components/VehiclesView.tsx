@@ -1,10 +1,232 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase, consolidateDuplicateVehicles, deleteVehicleAndAssociations, type Vehicle, type Client } from '@/src/lib/supabase';
 import { theme } from '@/src/lib/theme';
 import { LoadingState, ErrorState, EmptyState } from './States';
 import { Plus, Search, Car, User, StickyNote, Pencil, Trash2, X, AlertCircle, FileSpreadsheet, ChevronLeft, ChevronRight, ClipboardList, ChevronDown, Check, Loader2, Layers } from 'lucide-react';
 
 type VehicleRow = Vehicle & { clients?: { name: string } | Array<{ name: string }> | null };
+
+interface ClientComboboxProps {
+  clients: Client[];
+  selectedClientId: string;
+  onSelectClient: (clientId: string) => void;
+  onMergeRemoteClients?: (remoteClients: Client[]) => void;
+  error?: string | null;
+}
+
+function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemoteClients, error }: ClientComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searchingServer, setSearchingServer] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const isValidName = (name: string | null | undefined): boolean => {
+    if (!name) return false;
+    const clean = name.trim();
+    return (
+      clean !== '' &&
+      clean !== '-' &&
+      clean !== ' - ' &&
+      clean !== '--' &&
+      clean.toLowerCase() !== 'sem nome' &&
+      clean.toLowerCase() !== 'sem proprietário'
+    );
+  };
+
+  const selectedClient = clients.find((c) => c.id === selectedClientId);
+  const getClientLabel = (c: Client) => `${c.name}${c.phone ? ` (${c.phone})` : ''}`;
+  const selectedLabel = selectedClient && isValidName(selectedClient.name) ? getClientLabel(selectedClient) : '';
+
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery(selectedLabel);
+    }
+  }, [selectedClientId, selectedLabel, isOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setQuery(selectedLabel);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedLabel]);
+
+  const isSelectedString = Boolean(selectedClientId && query === selectedLabel);
+  const activeSearch = isSelectedString ? '' : query.trim();
+
+  // Live remote search with 200ms debounce
+  useEffect(() => {
+    if (!activeSearch || activeSearch.length < 1 || !onMergeRemoteClients) return;
+
+    const term = activeSearch.trim();
+    const cleanTerm = term.replace(/\D/g, '');
+
+    const timer = setTimeout(async () => {
+      try {
+        setSearchingServer(true);
+        let q = supabase
+          .from('clients')
+          .select('id, name, phone')
+          .order('name')
+          .limit(100);
+
+        if (cleanTerm && cleanTerm.length >= 3) {
+          q = q.or(`name.ilike.%${term}%,phone.ilike.%${term}%,phone.ilike.%${cleanTerm}%`);
+        } else {
+          q = q.or(`name.ilike.%${term}%,phone.ilike.%${term}%`);
+        }
+
+        const { data, error: qErr } = await q;
+        if (!qErr && data && data.length > 0) {
+          onMergeRemoteClients(data as Client[]);
+        }
+      } catch {
+        // silent catch
+      } finally {
+        setSearchingServer(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [activeSearch, onMergeRemoteClients]);
+
+  const normalizeStr = (str?: string | null) =>
+    (str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const filteredClients = clients.filter((c) => {
+    if (!isValidName(c.name)) return false;
+    if (!activeSearch) return true;
+
+    const normQuery = normalizeStr(activeSearch);
+    const words = normQuery.split(/\s+/).filter(Boolean);
+    const cName = normalizeStr(c.name);
+    const cPhoneDigits = (c.phone || '').replace(/\D/g, '');
+    const queryDigits = activeSearch.replace(/\D/g, '');
+
+    const nameMatch = words.length > 0 && words.every((w) => cName.includes(w));
+    const phoneMatch =
+      (queryDigits.length >= 3 && cPhoneDigits.includes(queryDigits)) ||
+      normalizeStr(c.phone).includes(normQuery);
+
+    return nameMatch || phoneMatch;
+  });
+
+  const handleSelect = (c: Client) => {
+    onSelectClient(c.id);
+    setQuery(getClientLabel(c));
+    setIsOpen(false);
+  };
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelectClient('');
+    setQuery('');
+    setIsOpen(true);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div ref={containerRef} className="relative space-y-1">
+      <div className="relative flex items-center">
+        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Digite o nome ou telefone do proprietário..."
+          value={query}
+          onFocus={(e) => {
+            setIsOpen(true);
+            e.target.select();
+          }}
+          onClick={() => setIsOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setIsOpen(true);
+            if (selectedClientId) {
+              onSelectClient('');
+            }
+          }}
+          className={`block w-full pl-10 pr-10 py-2.5 bg-gray-50 border rounded-xl text-gray-900 text-sm transition-all outline-none font-medium ${
+            isOpen ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs' : 'border-gray-200 hover:border-gray-300'
+          } ${error ? 'border-red-400 bg-red-50/50' : ''}`}
+        />
+        {searchingServer ? (
+          <div className="w-4 h-4 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin absolute right-3 pointer-events-none" />
+        ) : query ? (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg absolute right-3 cursor-pointer"
+            title="Limpar cliente"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 pointer-events-none" />
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden max-h-72 flex flex-col">
+          <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+            <span>
+              {activeSearch ? `Buscando por "${activeSearch}"` : 'Selecione o Cliente Proprietário'}
+            </span>
+            <span className="text-emerald-600 font-extrabold">{filteredClients.length} cliente(s)</span>
+          </div>
+
+          <div className="overflow-y-auto divide-y divide-slate-100 p-1">
+            {filteredClients.length === 0 ? (
+              <div className="p-4 text-center space-y-1">
+                <p className="text-xs font-bold text-slate-700">Nenhum cliente encontrado</p>
+                <p className="text-[11px] text-slate-400">
+                  Nenhum proprietário atende à busca "{activeSearch}".
+                </p>
+              </div>
+            ) : (
+              filteredClients.map((c) => {
+                const isSelected = c.id === selectedClientId;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => handleSelect(c)}
+                    className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                      isSelected ? 'bg-emerald-50 text-emerald-950 font-bold' : 'hover:bg-slate-50 text-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-slate-500">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate">{c.name}</p>
+                        {c.phone && (
+                          <p className="text-[11px] text-slate-500 truncate">{c.phone}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface VehiclesViewProps {
   onNavigate?: (view: string, params?: any, currentViewSaveParams?: any) => void;
@@ -46,6 +268,15 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
   const [isSearchingClients, setIsSearchingClients] = useState(false);
   const [isConsolidating, setIsConsolidating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const handleMergeRemoteClients = useCallback((remoteList: Client[]) => {
+    setClients((prev) => {
+      const existingIds = new Set(prev.map((c) => c.id));
+      const newItems = remoteList.filter((c) => !existingIds.has(c.id));
+      if (newItems.length === 0) return prev;
+      return [...prev, ...newItems];
+    });
+  }, []);
 
   const handleConsolidateVehicles = async () => {
     setIsConsolidating(true);
@@ -521,7 +752,7 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                   </div>
                 </div>
 
-                <div className="space-y-1 relative">
+                <div className="space-y-1">
                   <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center justify-between">
                     <span>Cliente Proprietário *</span>
                     {clients.length > 0 && (
@@ -530,167 +761,16 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
                       </span>
                     )}
                   </label>
-
-                  {/* Trigger button */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIsClientDropdownOpen((prev) => !prev)}
-                      className={`w-full text-left px-3.5 py-2.5 bg-gray-50 border rounded-xl text-sm flex items-center justify-between transition-all cursor-pointer ${
-                        isClientDropdownOpen ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/10' : 'border-gray-200 hover:bg-gray-100/80'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                        <User className="w-4 h-4 text-slate-400 shrink-0" />
-                        {selectedClient && isValidOwnerName(selectedClient.name) ? (
-                          <div className="truncate">
-                            <span className="font-semibold text-slate-900">{selectedClient.name}</span>
-                            {selectedClient.phone && (
-                              <span className="text-xs text-slate-500 ml-2 font-normal">({selectedClient.phone})</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">Selecione o proprietário...</span>
-                        )}
-                      </div>
-                      <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${isClientDropdownOpen ? 'rotate-180 text-emerald-600' : ''}`} />
-                    </button>
-
-                    {/* Backdrop to close dropdown when clicking outside */}
-                    {isClientDropdownOpen && (
-                      <div
-                        className="fixed inset-0 z-20"
-                        onClick={() => setIsClientDropdownOpen(false)}
-                      />
-                    )}
-
-                    {/* Dropdown panel */}
-                    {isClientDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-30 overflow-hidden animate-scale-up">
-                        {/* Search input header */}
-                        <div className="p-2.5 border-b border-slate-100 bg-slate-50/80 flex items-center gap-2">
-                          <div className="relative flex-1 flex items-center">
-                            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 shrink-0 pointer-events-none" />
-                            <input
-                              type="text"
-                              value={clientSearchText}
-                              onChange={(e) => setClientSearchText(e.target.value)}
-                              onKeyDown={async (e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  await searchClientsDB(clientSearchText);
-                                } else if (e.key === 'Escape') {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setIsClientDropdownOpen(false);
-                                }
-                              }}
-                              placeholder="Digite nome ou telefone..."
-                              className="w-full text-xs bg-white border border-slate-200 rounded-lg pl-8 pr-7 py-1.5 text-slate-900 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                              autoFocus
-                            />
-                            {clientSearchText && (
-                              <button
-                                type="button"
-                                onClick={() => setClientSearchText('')}
-                                className="absolute right-2 p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
-                                title="Limpar busca"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => searchClientsDB(clientSearchText)}
-                            disabled={isSearchingClients}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
-                          >
-                            {isSearchingClients ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Search className="w-3.5 h-3.5" />
-                            )}
-                            <span>Buscar</span>
-                          </button>
-                        </div>
-
-                        {/* Search Status Header */}
-                        <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
-                          {isSearchingClients ? (
-                            <span className="flex items-center gap-1.5 font-medium text-emerald-700">
-                              <Loader2 className="w-3 h-3 animate-spin" /> Buscando no banco de dados...
-                            </span>
-                          ) : (
-                            <span>
-                              {filteredClients.length === 1
-                                ? '1 cliente encontrado'
-                                : `${filteredClients.length} clientes encontrados`}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-slate-400">Pressione Enter para buscar</span>
-                        </div>
-
-                        {/* Scrollable list of clients */}
-                        <div className="max-h-56 overflow-y-auto p-1 divide-y divide-slate-50">
-                          {filteredClients.length === 0 && !isSearchingClients ? (
-                            <div className="p-4 text-center text-xs text-slate-500">
-                              <p className="font-medium text-slate-700 mb-1">
-                                Nenhum cliente encontrado com &quot;{clientSearchText}&quot;
-                              </p>
-                              <p className="text-[11px] text-slate-400 mb-2">
-                                Verifique a grafia ou pesquise apenas parte do nome.
-                              </p>
-                              {clientSearchText.trim() && (
-                                <button
-                                  type="button"
-                                  onClick={() => searchClientsDB(clientSearchText)}
-                                  className="text-emerald-600 hover:text-emerald-700 font-semibold underline text-xs cursor-pointer inline-flex items-center gap-1"
-                                >
-                                  <Search className="w-3 h-3" /> Buscar no servidor
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            filteredClients.map((c) => {
-                              const isSelected = c.id === formClientId;
-                              return (
-                                <button
-                                  key={c.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setFormClientId(c.id);
-                                    setIsClientDropdownOpen(false);
-                                    setClientSearchText('');
-                                  }}
-                                  className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                    isSelected ? 'bg-emerald-50/90 text-emerald-900 font-bold' : 'hover:bg-slate-50 text-slate-700'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 font-bold text-[11px] ${
-                                      isSelected ? 'bg-emerald-200 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                                    }`}>
-                                      {c.name ? c.name.charAt(0).toUpperCase() : 'C'}
-                                    </div>
-                                    <div className="truncate">
-                                      <div className="truncate font-semibold">{c.name}</div>
-                                      {c.phone && (
-                                        <div className="text-[10px] text-slate-400 font-normal">{c.phone}</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 ml-1" />}
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <ClientCombobox
+                    clients={clients}
+                    selectedClientId={formClientId}
+                    onSelectClient={(id) => {
+                      setFormClientId(id);
+                      if (formError) setFormError(null);
+                    }}
+                    onMergeRemoteClients={handleMergeRemoteClients}
+                    error={formError && !formClientId ? formError : null}
+                  />
                 </div>
 
                 <div className="space-y-1">
