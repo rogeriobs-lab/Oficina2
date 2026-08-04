@@ -68,19 +68,26 @@ function ClientCombobox({ clients, selectedClientId, onSelectClient, onMergeRemo
     const timer = setTimeout(async () => {
       try {
         setSearchingServer(true);
-        let q = supabase
+        const words = term.split(/\s+/).filter(Boolean);
+        const orConditions: string[] = [];
+
+        if (words.length > 1) {
+          const nameAnd = words.map((w) => `name.ilike.%${w}%`).join(',');
+          orConditions.push(`and(${nameAnd})`);
+        }
+        orConditions.push(`name.ilike.%${term}%`);
+        orConditions.push(`phone.ilike.%${term}%`);
+        if (cleanTerm && cleanTerm.length >= 3) {
+          orConditions.push(`phone.ilike.%${cleanTerm}%`);
+        }
+
+        const { data, error: qErr } = await supabase
           .from('clients')
           .select('id, name, phone')
           .order('name')
-          .limit(100);
+          .limit(100)
+          .or(orConditions.join(','));
 
-        if (cleanTerm && cleanTerm.length >= 3) {
-          q = q.or(`name.ilike.%${term}%,phone.ilike.%${term}%,phone.ilike.%${cleanTerm}%`);
-        } else {
-          q = q.or(`name.ilike.%${term}%,phone.ilike.%${term}%`);
-        }
-
-        const { data, error: qErr } = await q;
         if (!qErr && data && data.length > 0) {
           onMergeRemoteClients(data as Client[]);
         }
@@ -378,15 +385,36 @@ export default function VehiclesView({ onNavigate, params }: VehiclesViewProps) 
         vehiclesQuery = vehiclesQuery.or(`plate.ilike.${term},brand.ilike.${term},model.ilike.${term},notes.ilike.${term}`);
       }
 
-      const [vehiclesRes, clientsRes] = await Promise.all([
-        vehiclesQuery.range(from, to),
-        supabase.from('clients').select('id, name, phone').order('name').limit(1000),
-      ]);
+      // Fetch all clients across pages
+      let loadedClients: Client[] = [];
+      let clientPage = 0;
+      let hasMoreClients = true;
+      while (hasMoreClients) {
+        const { data: cData, error: cErr } = await supabase
+          .from('clients')
+          .select('id, name, phone')
+          .order('name')
+          .range(clientPage * 1000, (clientPage + 1) * 1000 - 1);
+        if (cErr) {
+          console.warn('Erro ao carregar lista de clientes para seleção:', cErr);
+          break;
+        }
+        if (cData && cData.length > 0) {
+          loadedClients = [...loadedClients, ...(cData as Client[])];
+          if (cData.length < 1000) {
+            hasMoreClients = false;
+          } else {
+            clientPage++;
+          }
+        } else {
+          hasMoreClients = false;
+        }
+      }
+
+      const vehiclesRes = await vehiclesQuery.range(from, to);
 
       if (vehiclesRes.error) throw vehiclesRes.error;
-      if (clientsRes.error) console.warn('Erro ao carregar lista de clientes para seleção:', clientsRes.error);
 
-      const loadedClients = (clientsRes.data ?? []) as Client[];
       setClients(loadedClients);
 
       const rawVehicles = (vehiclesRes.data ?? []) as VehicleRow[];
